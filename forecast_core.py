@@ -405,14 +405,16 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     direction_label = "▲ 상승" if direction_up else "▼ 하락"
     direction_confidence = up_proba if direction_up else (1 - up_proba)
 
-    # 방향성 정확도(walk-forward, 최근 60일): 회귀 vs 분류 비교
+    # 방향성 정확도(walk-forward, 최근 60일): 회귀 vs 분류 비교 + 날짜별 상세
     dir_metrics = {}
+    backtest_table = None
     try:
         wf = dir_train
         test_n = min(60, max(20, len(wf) - 120))
         split_i = len(wf) - test_n
         Xall = wf[features]
-        t_up, p_reg, p_clf = [], [], []
+        t_up, p_reg, p_clf, p_clf_proba = [], [], [], []
+        bt_dates, bt_close, bt_next = [], [], []
         # 회귀 방향(기존): Target_Delta_Step1 부호
         delta_tgt = (wf["Close"].shift(-1) - wf["Close"])
         for i in range(split_i, len(wf)):
@@ -424,8 +426,14 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
             ps = max(int((yup == 1).sum()), 1); ng = max(int((yup == 0).sum()), 1)
             clf_i = XGBClassifier(**CLF_PARAMS, random_state=42,
                                   scale_pos_weight=ng / ps, eval_metric="logloss").fit(tr[features], yup)
-            p_clf.append(int(clf_i.predict_proba(xt)[0][1] >= 0.5))
+            proba_i = float(clf_i.predict_proba(xt)[0][1])
+            p_clf_proba.append(proba_i)
+            p_clf.append(int(proba_i >= 0.5))
             t_up.append(int(wf["Up"].iloc[i]))
+            bt_dates.append(wf.index[i])
+            bt_close.append(float(wf["Close"].iloc[i]))
+            nxt = wf["Close"].shift(-1).iloc[i]
+            bt_next.append(float(nxt) if pd.notna(nxt) else float("nan"))
         t_up = np.array(t_up)
         dir_metrics = {
             "regression_da": round(float(np.mean(t_up == np.array(p_reg)) * 100), 1),
@@ -433,8 +441,23 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
             "baseline_da": round(float(np.mean(t_up == 1) * 100), 1),
             "test_days": int(test_n),
         }
+        # 날짜별 상세 백테스트 표 (분류 모델 기준)
+        arrow = lambda u: "▲ 상승" if u else "▼ 하락"
+        backtest_table = pd.DataFrame({
+            "날짜": [d.strftime("%Y-%m-%d") for d in bt_dates],
+            "현재가": np.round(bt_close, 2),
+            "실제_다음날": np.round(bt_next, 2),
+            "실제_방향": [arrow(u) for u in t_up],
+            "예측_방향": [arrow(u) for u in p_clf],
+            "상승확률": [f"{p*100:.0f}%" for p in p_clf_proba],
+            "적중": ["✅" if t == p else "❌" for t, p in zip(t_up, p_clf)],
+            # 그래프용 원시 값
+            "_close": bt_close,
+            "_hit": [bool(t == p) for t, p in zip(t_up, p_clf)],
+        })
     except Exception:
         dir_metrics = {}
+        backtest_table = None
 
     forecast_table = pd.DataFrame({
         "Date": forecast_dates,
@@ -518,6 +541,7 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
             "confidence": round(direction_confidence * 100, 1),  # 예측 확신도(%)
             "next_date": forecast_dates[0] if forecast_dates else None,
             "metrics": dir_metrics,            # 회귀 vs 분류 방향성 정확도
+            "backtest_table": backtest_table,  # 날짜별 적중/오답 상세 (그래프+표용)
         },
     }
 
