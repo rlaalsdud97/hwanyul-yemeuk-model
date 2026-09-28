@@ -111,6 +111,50 @@ else:
 st.markdown("---")
 
 # ------------------------------------------------------------------
+# 🎯 내일 방향 예측 (분류 모델)
+# ------------------------------------------------------------------
+direction = result.get("direction", {})
+if direction:
+    st.subheader(f"🎯 내일({direction.get('next_date','')}) 방향 예측")
+    st.caption("방향 전용 분류 모델(XGBClassifier). 값이 아니라 '오를지/내릴지'를 직접 학습합니다.")
+
+    d1, d2, d3 = st.columns(3)
+    label = direction["label"]
+    if direction["up"]:
+        d1.metric("예측 방향", "▲ 상승", delta="UP", delta_color="normal")
+    else:
+        d1.metric("예측 방향", "▼ 하락", delta="DOWN", delta_color="inverse")
+    d2.metric("상승 확률", f"{direction['up_proba']}%",
+              help="모델이 계산한 내일 상승 확률. 50%보다 높으면 상승 예측.")
+    d3.metric("예측 확신도", f"{direction['confidence']}%",
+              help="예측 방향에 대한 확신 정도. 50%에 가까울수록 불확실.")
+
+    # 방향성 정확도 비교 (회귀 vs 분류)
+    dm = direction.get("metrics", {})
+    if dm:
+        clf_da = dm.get("classifier_da")
+        reg_da = dm.get("regression_da")
+        base_da = dm.get("baseline_da")
+        st.markdown(
+            f"**방향성 정확도** (최근 {dm.get('test_days','?')}일 walk-forward 검증): "
+            f"🔴 분류 **{clf_da}%**  vs  🟢 회귀(기존) {reg_da}%  vs  ⚪ 기준선(항상상승) {base_da}%"
+        )
+        if clf_da is not None:
+            if clf_da >= 55:
+                st.success(f"분류 모델 방향성 {clf_da}% — 유의미한 수준입니다. (동전던지기 50%)")
+            elif clf_da >= 50:
+                st.info(f"분류 모델 방향성 {clf_da}% — 동전던지기 수준입니다. 참고용으로만.")
+            else:
+                st.warning(f"분류 모델 방향성 {clf_da}% — 신뢰하기 어렵습니다.")
+
+    # 확신도 경고
+    if direction["confidence"] < 55:
+        st.caption("⚠️ 확신도가 낮습니다(50%대). 방향이 불확실하니 참고용으로만 보세요.")
+    st.caption("⚠️ 추세 전환점(급등·급락 시작)에서는 방향 예측이 특히 약해질 수 있습니다.")
+
+    st.markdown("---")
+
+# ------------------------------------------------------------------
 # 📈 대화형 그래프 (Plotly)
 # ------------------------------------------------------------------
 st.subheader(f"📈 {result['forecast_days']}일 예측 차트")
