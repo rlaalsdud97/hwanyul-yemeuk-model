@@ -154,6 +154,65 @@ if direction:
 
     st.markdown("---")
 
+    # --------------------------------------------------------------
+    # 🔍 백테스트 검증: 과거에 방향을 맞췄는지 눈으로 확인
+    # --------------------------------------------------------------
+    bt = direction.get("backtest_table")
+    if bt is not None and len(bt) > 0:
+        with st.expander("🔍 백테스트 검증 — 과거에 방향을 맞췄나요? (펼쳐보기)", expanded=True):
+            st.caption(
+                "각 날짜에 '다음날 방향'을 예측했다고 가정하고, 실제 결과와 비교한 것입니다. "
+                "초록점=적중 ✅ / 빨간점=오답 ❌"
+            )
+
+            bt_dates = pd.to_datetime(bt["날짜"])
+            closes = list(bt["_close"])
+            hits = list(bt["_hit"])
+            hit_rate = (sum(hits) / len(hits)) * 100
+
+            # (c) 그래프: 실제 종가 + 적중/오답 점
+            hit_x = [d for d, h in zip(bt_dates, hits) if h]
+            hit_y = [c for c, h in zip(closes, hits) if h]
+            miss_x = [d for d, h in zip(bt_dates, hits) if not h]
+            miss_y = [c for c, h in zip(closes, hits) if not h]
+
+            bt_fig = go.Figure()
+            bt_fig.add_trace(go.Scatter(
+                x=bt_dates, y=closes, mode="lines",
+                name="실제 종가", line=dict(color="#2c3e50", width=2),
+            ))
+            bt_fig.add_trace(go.Scatter(
+                x=hit_x, y=hit_y, mode="markers", name="방향 적중 ✅",
+                marker=dict(color="#27ae60", size=9, line=dict(color="white", width=1)),
+            ))
+            bt_fig.add_trace(go.Scatter(
+                x=miss_x, y=miss_y, mode="markers", name="방향 오답 ❌",
+                marker=dict(color="#e74c3c", size=9, line=dict(color="white", width=1)),
+            ))
+            bt_fig.update_layout(
+                height=380,
+                title=f"백테스트: 분류 모델 방향 적중률 {hit_rate:.1f}%  (최근 {len(bt)}일)",
+                xaxis_title="날짜", yaxis_title="USD/KRW",
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                margin=dict(l=40, r=20, t=60, b=40),
+            )
+            st.plotly_chart(bt_fig, use_container_width=True)
+
+            # (a) 날짜별 표 (그래프용 원시 컬럼 제외)
+            st.markdown("**날짜별 적중 상세**")
+            show_cols = ["날짜", "현재가", "실제_다음날", "실제_방향", "예측_방향", "상승확률", "적중"]
+            st.dataframe(bt[show_cols], use_container_width=True, hide_index=True)
+
+            # 요약
+            n_hit = sum(hits)
+            st.caption(
+                f"총 {len(bt)}일 중 **{n_hit}일 적중 / {len(bt)-n_hit}일 오답** "
+                f"→ 적중률 **{hit_rate:.1f}%**  (50% = 동전던지기)"
+            )
+
+    st.markdown("---")
+
 # ------------------------------------------------------------------
 # 📈 대화형 그래프 (Plotly)
 # ------------------------------------------------------------------
