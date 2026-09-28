@@ -10,13 +10,20 @@ from bs4 import BeautifulSoup
 from prophet import Prophet
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from xgboost import XGBRegressor
+from xgboost import XGBRegressor, XGBClassifier
 import numpy as np
 import pandas as pd
 import yfinance as yf
 import warnings
 
 warnings.filterwarnings("ignore")
+
+# 방향 분류 모델 파라미터 (backtest에서 58.3% 검증된 설정)
+CLF_PARAMS = {
+    "subsample": 0.8, "n_estimators": 200, "max_depth": 4,
+    "learning_rate": 0.03, "colsample_bytree": 0.8,
+    "reg_lambda": 1.0, "min_child_weight": 3,
+}
 
 # ---------------------------------------------------
 # 상수
@@ -380,6 +387,55 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     signals = [make_signal(p, lower_band, upper_band) for p in ensemble_forecast_adj]
     today_signal = make_signal(current_rate, lower_band, upper_band)
 
+    # [7-2] 🎯 내일 방향 예측 (XGBClassifier) -------------------------
+    # backtest.py에서 회귀(53%) 대비 분류(58.3%)로 검증된 방향 전용 모델.
+    # 타깃을 "값"이 아니라 "오름(1)/내림(0)"으로 직접 학습.
+    _log("내일 방향(상승/하락) 분류 예측 중...")
+    dir_df = ml.copy()
+    dir_df["Up"] = (dir_df["Close"].shift(-1) > dir_df["Close"]).astype(int)
+    dir_train = dir_df.dropna(subset=features + ["Up"])
+    X_dir, y_dir = dir_train[features], dir_train["Up"]
+
+    pos = max(int((y_dir == 1).sum()), 1)
+    neg = max(int((y_dir == 0).sum()), 1)
+    clf = XGBClassifier(**CLF_PARAMS, random_state=42,
+                        scale_pos_weight=neg / pos, eval_metric="logloss").fit(X_dir, y_dir)
+    up_proba = float(clf.predict_proba(latest_features)[0][1])   # 내일 상승 확률
+    direction_up = up_proba >= 0.5
+    direction_label = "▲ 상승" if direction_up else "▼ 하락"
+    direction_confidence = up_proba if direction_up else (1 - up_proba)
+
+    # 방향성 정확도(walk-forward, 최근 60일): 회귀 vs 분류 비교
+    dir_metrics = {}
+    try:
+        wf = dir_train
+        test_n = min(60, max(20, len(wf) - 120))
+        split_i = len(wf) - test_n
+        Xall = wf[features]
+        t_up, p_reg, p_clf = [], [], []
+        # 회귀 방향(기존): Target_Delta_Step1 부호
+        delta_tgt = (wf["Close"].shift(-1) - wf["Close"])
+        for i in range(split_i, len(wf)):
+            tr = wf.iloc[:i]
+            xt = Xall.iloc[[i]]
+            reg_i = XGBRegressor(**BEST_PARAMS, random_state=42).fit(tr[features], delta_tgt.iloc[:i].fillna(0))
+            p_reg.append(int(float(reg_i.predict(xt)[0]) > 0))
+            yup = tr["Up"]
+            ps = max(int((yup == 1).sum()), 1); ng = max(int((yup == 0).sum()), 1)
+            clf_i = XGBClassifier(**CLF_PARAMS, random_state=42,
+                                  scale_pos_weight=ng / ps, eval_metric="logloss").fit(tr[features], yup)
+            p_clf.append(int(clf_i.predict_proba(xt)[0][1] >= 0.5))
+            t_up.append(int(wf["Up"].iloc[i]))
+        t_up = np.array(t_up)
+        dir_metrics = {
+            "regression_da": round(float(np.mean(t_up == np.array(p_reg)) * 100), 1),
+            "classifier_da": round(float(np.mean(t_up == np.array(p_clf)) * 100), 1),
+            "baseline_da": round(float(np.mean(t_up == 1) * 100), 1),
+            "test_days": int(test_n),
+        }
+    except Exception:
+        dir_metrics = {}
+
     forecast_table = pd.DataFrame({
         "Date": forecast_dates,
         "XGBoost": np.round(xgb_forecast_adj, 2),
@@ -454,6 +510,15 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         "ensemble_forecast": np.round(ensemble_forecast_adj, 2).tolist(),
         "history": ml["Close"].tail(30),   # 최근 30일 실제 종가 (그래프용)
         "metrics": metrics,
+        # 🎯 내일 방향 예측 (분류 모델)
+        "direction": {
+            "label": direction_label,          # "▲ 상승" / "▼ 하락"
+            "up": bool(direction_up),
+            "up_proba": round(up_proba * 100, 1),          # 상승 확률(%)
+            "confidence": round(direction_confidence * 100, 1),  # 예측 확신도(%)
+            "next_date": forecast_dates[0] if forecast_dates else None,
+            "metrics": dir_metrics,            # 회귀 vs 분류 방향성 정확도
+        },
     }
 
 
@@ -467,3 +532,8 @@ if __name__ == "__main__":
     print("\n=== 성능 지표 ===")
     print(result["metrics"])
     print(f"\n오늘 시그널: {result['today_signal']} (%B={result['percent_b']}%)")
+    d = result["direction"]
+    print(f"\n🎯 내일({d['next_date']}) 방향 예측: {d['label']} "
+          f"(상승확률 {d['up_proba']}%, 확신도 {d['confidence']}%)")
+    print(f"   방향성 정확도(최근 {d['metrics'].get('test_days','?')}일): "
+          f"회귀 {d['metrics'].get('regression_da','?')}% vs 분류 {d['metrics'].get('classifier_da','?')}%")
