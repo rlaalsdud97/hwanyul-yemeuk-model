@@ -410,7 +410,7 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     backtest_table = None
     try:
         wf = dir_train
-        test_n = min(60, max(20, len(wf) - 120))
+        test_n = 20
         split_i = len(wf) - test_n
         Xall = wf[features]
         t_up, p_reg, p_clf, p_clf_proba = [], [], [], []
