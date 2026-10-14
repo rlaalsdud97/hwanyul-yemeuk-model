@@ -37,7 +37,7 @@ with st.sidebar:
     with st.expander("🔧 고급 설정 (켜면 느려짐)"):
         use_prophet = st.checkbox(
             "Prophet 모델 포함", value=False,
-            help="앙상블 가중치 상한이 5%라 결과 영향은 작고, 학습 시간은 가장 깁니다.",
+            help="앙상블 가중치 상한이 5%라 결과 영향은 작고, 학습 시간은 가장 깁니다. 배포 서버에는 prophet이 설치돼 있지 않아 로컬에서 `pip install prophet` 후에만 동작합니다.",
         )
         compare_regression = st.checkbox(
             "백테스트에서 회귀 모델 방향성도 비교", value=False,
@@ -97,6 +97,8 @@ result = st.session_state["result"]
 # ------------------------------------------------------------------
 if result.get("adjusted_note"):
     st.warning("⚠️ " + result["adjusted_note"])
+if result.get("prophet_note"):
+    st.warning("⚠️ " + result["prophet_note"])
 if result.get("crawl_ok"):
     st.success("✅ " + result["crawl_msg"])
 else:

@@ -292,8 +292,16 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     arima_mae, arima_rmse = evaluate_model(arima_test, arima_eval_preds)
 
     prophet_eval_preds, prophet_mae, prophet_rmse = None, None, None
+    prophet_note = None
     if use_prophet:
-        from prophet import Prophet  # 무거운 import라 필요할 때만 로드
+        try:
+            from prophet import Prophet  # 무거운 import라 필요할 때만 로드
+        except ImportError:
+            # 배포 환경(requirements.txt)에는 prophet을 넣지 않음 → 없으면 자동 제외
+            use_prophet = False
+            prophet_note = "Prophet 패키지가 설치되어 있지 않아 XGBoost + ARIMA로만 예측했습니다."
+            _log("⚠️ " + prophet_note)
+    if use_prophet:
         prophet_train = ml.loc[:split_date].reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
         prophet_train["ds"] = prophet_train["ds"].dt.tz_localize(None)
         prophet_test = ml.loc[test_start_date:].reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
@@ -550,6 +558,7 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         "arima_forecast": np.round(arima_forecast_adj, 2).tolist(),
         "prophet_forecast": np.round(prophet_forecast_adj, 2).tolist() if use_prophet else None,
         "use_prophet": bool(use_prophet),
+        "prophet_note": prophet_note,
         "ensemble_forecast": np.round(ensemble_forecast_adj, 2).tolist(),
         "history": ml["Close"].tail(30),   # 최근 30일 실제 종가 (그래프용)
         "metrics": metrics,
