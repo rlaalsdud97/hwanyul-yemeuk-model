@@ -3,6 +3,8 @@
 #   실행:  streamlit run app.py
 #   구성:  ⚙️ 사이드바 설정 | 🎯 요약카드 | 📈 대화형 그래프 | 📋 예측표 | 📊 성능지표
 # ==============================================================================
+from datetime import date
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -19,7 +21,7 @@ st.set_page_config(
 )
 
 st.title("💱 USD/KRW 환율 예측 대시보드")
-st.caption("KOSPI · VIX 결합 앙상블(XGBoost + ARIMA + Prophet) 퀀트 파이프라인")
+st.caption("KOSPI · VIX 결합 앙상블(XGBoost + ARIMA, 선택: Prophet) 퀀트 파이프라인")
 
 # ------------------------------------------------------------------
 # 사이드바 — 설정
@@ -28,10 +30,19 @@ with st.sidebar:
     st.header("⚙️ 예측 설정")
     target_date = st.date_input(
         "기준일 (과거 날짜 = 백테스트)",
-        value=pd.to_datetime("2026-09-28"),
+        value=date.today(),
     )
     forecast_days = st.slider("예측 기간 (영업일)", min_value=1, max_value=10, value=5)
     use_realtime = st.checkbox("네이버 실시간 환율 보정 사용", value=True)
+    with st.expander("🔧 고급 설정 (켜면 느려짐)"):
+        use_prophet = st.checkbox(
+            "Prophet 모델 포함", value=False,
+            help="앙상블 가중치 상한이 5%라 결과 영향은 작고, 학습 시간은 가장 깁니다.",
+        )
+        compare_regression = st.checkbox(
+            "백테스트에서 회귀 모델 방향성도 비교", value=False,
+            help="켜면 백테스트 학습 횟수가 2배가 됩니다.",
+        )
     st.markdown("---")
     run_btn = st.button("🚀 예측 실행", type="primary", use_container_width=True)
     st.markdown("---")
@@ -42,24 +53,28 @@ with st.sidebar:
 
 
 # ------------------------------------------------------------------
-# 예측 실행 (버튼 클릭 시). 결과는 세션에 캐시.
+# 예측 실행 (버튼 클릭 시).
+#  - 같은 설정이면 30분 동안 캐시된 결과를 바로 반환 (재학습 없음)
+#  - 캐시 함수 안에서는 화면 요소를 그릴 수 없어서 진행 로그 대신 스피너만 사용
 # ------------------------------------------------------------------
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_forecast(target_date, forecast_days, use_realtime, use_prophet,
+                    compare_regression):
+    return run_forecast(
+        target_date=target_date,
+        forecast_days=forecast_days,
+        use_realtime=use_realtime,
+        use_prophet=use_prophet,
+        compare_regression=compare_regression,
+    )
+
+
 def _do_run():
-    progress = st.empty()
-    logs = []
-
-    def _log(msg):
-        logs.append(str(msg))
-        progress.info("🔄 " + str(msg))
-
-    with st.spinner("모델 학습 및 예측 중... (30초~1분 소요)"):
-        result = run_forecast(
-            target_date=str(target_date),
-            forecast_days=int(forecast_days),
-            use_realtime=bool(use_realtime),
-            log=_log,
+    with st.spinner("모델 학습 및 예측 중..."):
+        result = cached_forecast(
+            str(target_date), int(forecast_days), bool(use_realtime),
+            bool(use_prophet), bool(compare_regression),
         )
-    progress.empty()
     st.session_state["result"] = result
 
 
@@ -135,9 +150,10 @@ if direction:
         clf_da = dm.get("classifier_da")
         reg_da = dm.get("regression_da")
         base_da = dm.get("baseline_da")
+        reg_txt = f"  vs  🟢 회귀(기존) {reg_da}%" if reg_da is not None else ""
         st.markdown(
             f"**방향성 정확도** (최근 {dm.get('test_days','?')}일 walk-forward 검증): "
-            f"🔴 분류 **{clf_da}%**  vs  🟢 회귀(기존) {reg_da}%  vs  ⚪ 기준선(항상상승) {base_da}%"
+            f"🔴 분류 **{clf_da}%**{reg_txt}  vs  ⚪ 기준선(항상상승) {base_da}%"
         )
         if clf_da is not None:
             if clf_da >= 55:
@@ -154,13 +170,10 @@ if direction:
 
     st.markdown("---")
 
-    # --------------------------------------------------------------
-    # 🔍 백테스트 검증: 과거에 방향을 맞췄는지 눈으로 확인
-    # --------------------------------------------------------------
-    bt = direction.get("backtest_table")
-    
-# 백테스트 검증: 월별 조회
-bt = direction.get("backtest_table")
+# ------------------------------------------------------------------
+# 🔍 백테스트 검증: 과거에 방향을 맞췄는지 눈으로 확인 (월별 조회)
+# ------------------------------------------------------------------
+bt = direction.get("backtest_table") if direction else None
 
 if bt is not None and len(bt) > 0:
     with st.expander(
@@ -280,10 +293,7 @@ if bt is not None and len(bt) > 0:
         ]
 
         st.dataframe(
-            bt_view[show_cols].assign(
-                날짜=bt_view["날날"] if "날날" in bt_view.columns
-                else bt_view["날짜"].dt.strftime("%Y-%m-%d")
-            )[show_cols],
+            bt_view[show_cols].assign(날짜=bt_view["날짜"].dt.strftime("%Y-%m-%d")),
             use_container_width=True,
             hide_index=True
         )
@@ -327,11 +337,12 @@ fig.add_trace(go.Scatter(
     name=f"ARIMA ({result['weights']['ARIMA']}%)",
     line=dict(color="#2980b9", width=1.5, dash="dashdot"),
 ))
-fig.add_trace(go.Scatter(
-    x=connect_dates, y=[current_rate] + result["prophet_forecast"], mode="lines",
-    name=f"Prophet ({result['weights']['Prophet']}%)",
-    line=dict(color="#f39c12", width=1.5, dash="dot"),
-))
+if result.get("prophet_forecast"):
+    fig.add_trace(go.Scatter(
+        x=connect_dates, y=[current_rate] + result["prophet_forecast"], mode="lines",
+        name=f"Prophet ({result['weights']['Prophet']}%)",
+        line=dict(color="#f39c12", width=1.5, dash="dot"),
+    ))
 # 최종 앙상블 (강조)
 fig.add_trace(go.Scatter(
     x=connect_dates, y=[current_rate] + result["ensemble_forecast"], mode="lines+markers",

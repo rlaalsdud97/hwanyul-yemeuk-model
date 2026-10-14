@@ -7,7 +7,6 @@
 # ==============================================================================
 import requests
 from bs4 import BeautifulSoup
-from prophet import Prophet
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from xgboost import XGBRegressor, XGBClassifier
@@ -160,7 +159,8 @@ def fetch_naver_usdkrw():
 # ---------------------------------------------------
 # 메인 파이프라인
 # ---------------------------------------------------
-def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, log=None):
+def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, log=None,
+                 use_prophet=False, compare_regression=False):
     """
     환율 예측 파이프라인 실행.
 
@@ -170,6 +170,8 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     forecast_days : int  예측할 미래 영업일 수
     use_realtime : bool  네이버 실시간 환율 보정 사용 여부
     log : callable|None  진행상황 로그 콜백 (예: st.write). None이면 무시.
+    use_prophet : bool  Prophet 포함 여부. 가중치 상한이 5%라 영향은 작고 학습은 무거워서 기본 OFF.
+    compare_regression : bool  방향 백테스트에서 회귀 모델 비교까지 돌릴지 여부 (학습 횟수 2배).
 
     Returns
     -------
@@ -289,14 +291,17 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     arima_eval_preds = arima_eval_model.forecast(steps=len(arima_test))
     arima_mae, arima_rmse = evaluate_model(arima_test, arima_eval_preds)
 
-    prophet_train = ml.loc[:split_date].reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
-    prophet_train["ds"] = prophet_train["ds"].dt.tz_localize(None)
-    prophet_test = ml.loc[test_start_date:].reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
-    prophet_test["ds"] = prophet_test["ds"].dt.tz_localize(None)
-    prophet_eval_model = Prophet(yearly_seasonality=False, weekly_seasonality=False,
-                                 daily_seasonality=False, changepoint_prior_scale=0.01).fit(prophet_train)
-    prophet_eval_preds = prophet_eval_model.predict(prophet_test[["ds"]])["yhat"].values
-    prophet_mae, prophet_rmse = evaluate_model(prophet_test["y"], prophet_eval_preds)
+    prophet_eval_preds, prophet_mae, prophet_rmse = None, None, None
+    if use_prophet:
+        from prophet import Prophet  # 무거운 import라 필요할 때만 로드
+        prophet_train = ml.loc[:split_date].reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
+        prophet_train["ds"] = prophet_train["ds"].dt.tz_localize(None)
+        prophet_test = ml.loc[test_start_date:].reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
+        prophet_test["ds"] = prophet_test["ds"].dt.tz_localize(None)
+        prophet_eval_model = Prophet(yearly_seasonality=False, weekly_seasonality=False,
+                                     daily_seasonality=False, changepoint_prior_scale=0.01).fit(prophet_train)
+        prophet_eval_preds = prophet_eval_model.predict(prophet_test[["ds"]])["yhat"].values
+        prophet_mae, prophet_rmse = evaluate_model(prophet_test["y"], prophet_eval_preds)
 
     # [4] 미래 예측 ---------------------------------------------------
     _log(f"미래 {forecast_days}영업일 예측 생성...")
@@ -321,24 +326,26 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     arima_fit = ARIMA(arima_series, order=(0, 1, 1)).fit()
     arima_forecast = arima_fit.forecast(steps=forecast_days).values
 
-    prophet_df = ml.reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
-    prophet_df["ds"] = prophet_df["ds"].dt.tz_localize(None)
-    prophet_model = Prophet(yearly_seasonality=False, weekly_seasonality=False,
-                            daily_seasonality=False, changepoint_prior_scale=0.01).fit(prophet_df)
-    future_dates_df = pd.DataFrame({"ds": pd.to_datetime(forecast_dates)})
-    prophet_forecast = prophet_model.predict(future_dates_df)["yhat"].values
-
     last_close = float(ml["Close"].iloc[-1])
-    volatility = ml["Spread"].tail(20).mean()
-    dynamic_limit = volatility * VOL_MULTIPLIER
-    prophet_forecast = np.clip(prophet_forecast, last_close - dynamic_limit, last_close + dynamic_limit)
+    if use_prophet:
+        prophet_df = ml.reset_index()[["Date", "Close"]].rename(columns={"Date": "ds", "Close": "y"})
+        prophet_df["ds"] = prophet_df["ds"].dt.tz_localize(None)
+        prophet_model = Prophet(yearly_seasonality=False, weekly_seasonality=False,
+                                daily_seasonality=False, changepoint_prior_scale=0.01).fit(prophet_df)
+        future_dates_df = pd.DataFrame({"ds": pd.to_datetime(forecast_dates)})
+        prophet_forecast = prophet_model.predict(future_dates_df)["yhat"].values
+        volatility = ml["Spread"].tail(20).mean()
+        dynamic_limit = volatility * VOL_MULTIPLIER
+        prophet_forecast = np.clip(prophet_forecast, last_close - dynamic_limit, last_close + dynamic_limit)
+    else:
+        prophet_forecast = np.zeros(forecast_days)  # 가중치 0으로 앙상블에서 제외됨
 
     xgb_forecast = np.array(forecast_rounded)
     score_xgb = model_score(xgb_mae, xgb_rmse)
     score_arima = model_score(arima_mae, arima_rmse)
-    score_prophet = model_score(prophet_mae, prophet_rmse)
+    score_prophet = model_score(prophet_mae, prophet_rmse) if use_prophet else np.inf
     scores = np.array([score_xgb, score_arima, score_prophet])
-    inverse_scores = 1 / scores
+    inverse_scores = 1 / scores  # inf → 0 이라 Prophet OFF면 가중치 0
     weights = inverse_scores / inverse_scores.sum()
     if weights[2] > MAX_PROPHET_WEIGHT:
         extra = weights[2] - MAX_PROPHET_WEIGHT
@@ -392,9 +399,12 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     # 타깃을 "값"이 아니라 "오름(1)/내림(0)"으로 직접 학습.
     _log("내일 방향(상승/하락) 분류 예측 중...")
     dir_df = ml.copy()
-    dir_df["Up"] = (dir_df["Close"].shift(-1) > dir_df["Close"]).astype(int)
+    # 마지막 날은 다음 날 값이 없으므로 NaN으로 둬야 학습/검증에서 빠짐.
+    # (기존 코드는 NaN > x 가 False → 0(하락)으로 들어가 가짜 라벨이 섞였음)
+    _next = dir_df["Close"].shift(-1)
+    dir_df["Up"] = (_next > dir_df["Close"]).astype(float).where(_next.notna())
     dir_train = dir_df.dropna(subset=features + ["Up"])
-    X_dir, y_dir = dir_train[features], dir_train["Up"]
+    X_dir, y_dir = dir_train[features], dir_train["Up"].astype(int)
 
     pos = max(int((y_dir == 1).sum()), 1)
     neg = max(int((y_dir == 0).sum()), 1)
@@ -405,11 +415,12 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     direction_label = "▲ 상승" if direction_up else "▼ 하락"
     direction_confidence = up_proba if direction_up else (1 - up_proba)
 
-    # 방향성 정확도(walk-forward, 최근 60일): 회귀 vs 분류 비교 + 날짜별 상세
+    # 방향성 정확도(walk-forward, 최근 20일): 회귀 vs 분류 비교 + 날짜별 상세
     dir_metrics = {}
     backtest_table = None
     try:
-        wf = dir_train
+        wf = dir_train.copy()
+        wf["Up"] = wf["Up"].astype(int)
         test_n = 20
         split_i = len(wf) - test_n
         Xall = wf[features]
@@ -420,8 +431,9 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         for i in range(split_i, len(wf)):
             tr = wf.iloc[:i]
             xt = Xall.iloc[[i]]
-            reg_i = XGBRegressor(**BEST_PARAMS, random_state=42).fit(tr[features], delta_tgt.iloc[:i].fillna(0))
-            p_reg.append(int(float(reg_i.predict(xt)[0]) > 0))
+            if compare_regression:
+                reg_i = XGBRegressor(**BEST_PARAMS, random_state=42).fit(tr[features], delta_tgt.iloc[:i].fillna(0))
+                p_reg.append(int(float(reg_i.predict(xt)[0]) > 0))
             yup = tr["Up"]
             ps = max(int((yup == 1).sum()), 1); ng = max(int((yup == 0).sum()), 1)
             clf_i = XGBClassifier(**CLF_PARAMS, random_state=42,
@@ -432,11 +444,12 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
             t_up.append(int(wf["Up"].iloc[i]))
             bt_dates.append(wf.index[i])
             bt_close.append(float(wf["Close"].iloc[i]))
-            nxt = wf["Close"].shift(-1).iloc[i]
+            nxt = _next.loc[wf.index[i]]  # 원본 기준 다음 날 값 (wf 안에서 shift하면 마지막 행이 NaN)
             bt_next.append(float(nxt) if pd.notna(nxt) else float("nan"))
         t_up = np.array(t_up)
         dir_metrics = {
-            "regression_da": round(float(np.mean(t_up == np.array(p_reg)) * 100), 1),
+            "regression_da": (round(float(np.mean(t_up == np.array(p_reg)) * 100), 1)
+                              if compare_regression else None),
             "classifier_da": round(float(np.mean(t_up == np.array(p_clf)) * 100), 1),
             "baseline_da": round(float(np.mean(t_up == 1) * 100), 1),
             "test_days": int(test_n),
@@ -463,26 +476,31 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         "Date": forecast_dates,
         "XGBoost": np.round(xgb_forecast_adj, 2),
         "ARIMA": np.round(arima_forecast_adj, 2),
-        "Prophet": np.round(prophet_forecast_adj, 2),
+        "Prophet": np.round(prophet_forecast_adj, 2) if use_prophet else np.nan,
         "Final": np.round(ensemble_forecast_adj, 2),
         "Buy_Band": round(lower_band, 2),
         "Sell_Band": round(upper_band, 2),
         "Signal": signals,
     })
+    if not use_prophet:
+        forecast_table = forecast_table.drop(columns=["Prophet"])
 
     # [9] OOT 앙상블 검증 (교집합 정렬) -------------------------------
-    prophet_series = pd.Series(prophet_eval_preds, index=pd.to_datetime(prophet_test["ds"].values))
+    prophet_series = (pd.Series(prophet_eval_preds, index=pd.to_datetime(prophet_test["ds"].values))
+                      if use_prophet else None)
     arima_series_eval = pd.Series(np.asarray(arima_eval_preds), index=pd.to_datetime(arima_test.index))
     xgb_series = pred_close_xgb.copy()
     xgb_series.index = pd.to_datetime(xgb_series.index).tz_localize(None)
     true_series = true_close_xgb.copy()
     true_series.index = pd.to_datetime(true_series.index).tz_localize(None)
-    if prophet_series.index.tz is not None:
+    if prophet_series is not None and prophet_series.index.tz is not None:
         prophet_series.index = prophet_series.index.tz_localize(None)
     if arima_series_eval.index.tz is not None:
         arima_series_eval.index = arima_series_eval.index.tz_localize(None)
 
-    common_idx = xgb_series.index.intersection(arima_series_eval.index).intersection(prophet_series.index)
+    common_idx = xgb_series.index.intersection(arima_series_eval.index)
+    if prophet_series is not None:
+        common_idx = common_idx.intersection(prophet_series.index)
     common_idx = common_idx.intersection(true_series.index)
 
     metrics = {}
@@ -490,8 +508,9 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         aligned_true = true_series.loc[common_idx]
         aligned_xgb = xgb_series.loc[common_idx]
         aligned_arima = arima_series_eval.loc[common_idx]
-        aligned_prophet = prophet_series.loc[common_idx]
-        ensemble_preds_oot = (aligned_xgb * weight_xgb) + (aligned_arima * weight_arima) + (aligned_prophet * weight_prophet)
+        ensemble_preds_oot = (aligned_xgb * weight_xgb) + (aligned_arima * weight_arima)
+        if prophet_series is not None:
+            ensemble_preds_oot = ensemble_preds_oot + prophet_series.loc[common_idx] * weight_prophet
         e_mae, e_rmse = evaluate_model(aligned_true, ensemble_preds_oot)
         e_mape = mape_score(aligned_true, ensemble_preds_oot)
         metrics = {
@@ -529,7 +548,8 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         "forecast_dates": forecast_dates,
         "xgb_forecast": np.round(xgb_forecast_adj, 2).tolist(),
         "arima_forecast": np.round(arima_forecast_adj, 2).tolist(),
-        "prophet_forecast": np.round(prophet_forecast_adj, 2).tolist(),
+        "prophet_forecast": np.round(prophet_forecast_adj, 2).tolist() if use_prophet else None,
+        "use_prophet": bool(use_prophet),
         "ensemble_forecast": np.round(ensemble_forecast_adj, 2).tolist(),
         "history": ml["Close"].tail(30),   # 최근 30일 실제 종가 (그래프용)
         "metrics": metrics,
