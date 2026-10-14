@@ -304,7 +304,13 @@ if bt is not None and len(bt) > 0:
 # ------------------------------------------------------------------
 st.subheader(f"📈 {result['forecast_days']}일 예측 차트")
 
-history = result["history"]  # pandas Series (index=날짜, value=종가)
+view = st.radio(
+    "차트 범위", ["최근 5일 + 예측", "최근 30일 + 예측"],
+    horizontal=True, label_visibility="collapsed", key="chart_view",
+)
+hist_n = 5 if view.startswith("최근 5일") else 30
+
+history = result["history"].tail(hist_n)  # pandas Series (index=날짜, value=종가)
 hist_dates = [d.strftime("%Y-%m-%d") for d in pd.to_datetime(history.index)]
 hist_values = history.values.tolist()
 
@@ -318,8 +324,12 @@ fig = go.Figure()
 # 과거 실제
 fig.add_trace(go.Scatter(
     x=hist_dates, y=hist_values, mode="lines",
-    name="실제 (최근 30일)", line=dict(color="#2c3e50", width=3),
+    name=f"실제 (최근 {hist_n}일)", line=dict(color="#2c3e50", width=3),
 ))
+
+# 예측 구간 배경 표시
+fig.add_vrect(x0=hist_dates[-1], x1=fdates[-1], fillcolor="#c0392b",
+              opacity=0.05, line_width=0)
 
 # 시그널 밴드 (수평 영역)
 fig.add_hrect(y0=result["lower_band"], y1=result["upper_band"],
@@ -352,9 +362,17 @@ fig.add_trace(go.Scatter(
     marker=dict(size=8, symbol="square"),
 ))
 
+# 세로축: 화면에 보이는 실제값 + 예측값 범위에 맞춰 확대 (밴드 때문에 납작해지지 않게)
+visible = hist_values + [current_rate] + result["ensemble_forecast"] \
+    + result["xgb_forecast"] + result["arima_forecast"] + (result.get("prophet_forecast") or [])
+y_min, y_max = min(visible), max(visible)
+pad = max((y_max - y_min) * 0.25, 2.0)
+
 fig.update_layout(
     height=520,
     xaxis_title="날짜", yaxis_title="환율 (KRW/USD)",
+    yaxis=dict(range=[y_min - pad, y_max + pad]),
+    xaxis=dict(rangebreaks=[dict(bounds=["sat", "mon"])]),  # 주말 빈칸 제거
     hovermode="x unified",
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     margin=dict(l=40, r=20, t=40, b=40),
