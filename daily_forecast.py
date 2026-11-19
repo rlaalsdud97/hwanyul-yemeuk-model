@@ -7,7 +7,7 @@
 # ==============================================================================
 from datetime import datetime, timedelta, timezone
 
-from forecast_core import run_forecast
+from forecast_core import CURRENCIES, run_forecast
 from result_io import save_result, update_history
 
 KST = timezone(timedelta(hours=9))
@@ -15,15 +15,28 @@ FORECAST_DAYS = 5
 
 
 def main():
+    failed = []
+    for currency in CURRENCIES:            # USD, EUR … 통화별로 따로 예측·저장
+        try:
+            run_one(currency)
+        except Exception as e:             # 한 통화가 실패해도 나머지는 계속
+            print(f"[daily] ❌ {currency} 실패: {e}")
+            failed.append(currency)
+    if failed:
+        raise SystemExit(f"실패한 통화: {failed}")
+
+
+def run_one(currency):
     now = datetime.now(KST)
     target_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")  # 마지막으로 끝난 거래일 기준
-    print(f"[daily] 기준일 {target_date} · {FORECAST_DAYS}영업일 예측 시작")
+    print(f"[daily] {currency} · 기준일 {target_date} · {FORECAST_DAYS}영업일 예측 시작")
 
     result = run_forecast(
         target_date=target_date,
         forecast_days=FORECAST_DAYS,
         use_realtime=False,
         log=print,
+        currency=currency,
     )
     path = save_result(result, extra={
         "source": "auto",

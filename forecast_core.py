@@ -87,13 +87,25 @@ def make_signal(rate, low, up):
 
 
 # ---------------------------------------------------
+# 통화 설정 (새 통화 추가는 result_io.py 의 CURRENCIES 에서)
+# ---------------------------------------------------
+from result_io import CURRENCIES  # 통화 설정은 result_io.py에 (대시보드가 가볍게 읽도록)
+
+
+# ---------------------------------------------------
 # 실시간 환율 크롤링 (네이버 JSON API)
 # ---------------------------------------------------
 def fetch_naver_usdkrw():
+    """하위 호환용: 원/달러 실시간 환율."""
+    return fetch_naver_rate("USD")
+
+
+def fetch_naver_rate(currency="USD"):
     """
-    실시간 USD/KRW 환율 수집. 네이버 JSON API 1순위, HTML 파싱 2순위.
+    실시간 원화 환율 수집. 네이버 JSON API 1순위, HTML 파싱 2순위.
     반환: (rate: float|None, message: str)
     """
+    cfg = CURRENCIES[currency]
     headers = {
         "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -110,8 +122,8 @@ def fetch_naver_usdkrw():
             return None
 
     api_urls = [
-        "https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
-        "https://m.stock.naver.com/front-api/marketIndex/prices?category=exchange&reutersCode=FX_USDKRW&page=1",
+        f"https://api.stock.naver.com/marketindex/exchange/{cfg['naver']}",
+        f"https://m.stock.naver.com/front-api/marketIndex/prices?category=exchange&reutersCode={cfg['naver']}&page=1",
     ]
     for api in api_urls:
         try:
@@ -138,12 +150,12 @@ def fetch_naver_usdkrw():
                                 headers=headers, timeout=5)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
-        selectors = [
-            "#exchangeList > li.on > a.head.usd > div > span.value",
-            "#exchangeList > li:nth-child(1) span.value",
-            "div.market1 span.value",
-            "span.value",
-        ]
+        # 통화별 전용 셀렉터만 사용 (범용 'span.value'는 첫 항목=달러를 집어올 수 있어
+        # 유로에서는 쓰지 않음)
+        selectors = [f"#exchangeList a.head.{cfg['html_class']} span.value"]
+        if currency == "USD":
+            selectors += ["#exchangeList > li:nth-child(1) span.value",
+                          "div.market1 span.value", "span.value"]
         for sel in selectors:
             node = soup.select_one(sel)
             if node is not None and node.text.strip():
@@ -159,7 +171,7 @@ def fetch_naver_usdkrw():
 # ---------------------------------------------------
 # 데이터 수집 + 피처 생성 (예측·백테스트 공용)
 # ---------------------------------------------------
-def load_dataset(target_date, log=None, start="2022-01-01"):
+def load_dataset(target_date, log=None, start="2022-01-01", currency="USD"):
     """
     야후 파이낸스에서 지표를 받아 피처를 만든다.
     반환: (ml DataFrame, 회귀용 features 리스트, 조정된 target_date, 휴장일 안내문)
@@ -170,22 +182,25 @@ def load_dataset(target_date, log=None, start="2022-01-01"):
             log(msg)
 
     _log("데이터 수집 및 Feature 생성 중 (VIX, KOSPI 융합)...")
+    cfg = CURRENCIES[currency]
+    fx = cfg["ticker"]
     tickers = {
-        "KRW": "KRW=X", "DXY": "DX-Y.NYB", "US10Y": "^TNX",
-        "VIX": "^VIX", "KOSPI": "^KS11",
+        "KRW": fx, "DXY": "DX-Y.NYB", "US10Y": "^TNX",
+        "VIX": "^VIX", "KOSPI": "^KS11", **cfg["extra"],
     }
     end_fetch_date = (pd.to_datetime(target_date) + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
     raw = yf.download(list(tickers.values()), start=start, end=end_fetch_date, progress=False)
 
     idx = pd.IndexSlice
     ml = pd.DataFrame({
-        "Close": raw.loc[:, idx["Close", "KRW=X"]],
-        "High": raw.loc[:, idx["High", "KRW=X"]],
-        "Low": raw.loc[:, idx["Low", "KRW=X"]],
+        "Close": raw.loc[:, idx["Close", fx]],
+        "High": raw.loc[:, idx["High", fx]],
+        "Low": raw.loc[:, idx["Low", fx]],
         "DXY": raw.loc[:, idx["Close", "DX-Y.NYB"]],
         "US10Y": raw.loc[:, idx["Close", "^TNX"]],
         "VIX": raw.loc[:, idx["Close", "^VIX"]],
         "KOSPI": raw.loc[:, idx["Close", "^KS11"]],
+        **{name: raw.loc[:, idx["Close", tk]] for name, tk in cfg["extra"].items()},
     })
     ml = ml.ffill().dropna()
 
@@ -247,6 +262,10 @@ def load_dataset(target_date, log=None, start="2022-01-01"):
         "VIX_delta_lag1", "KOSPI_return_lag1",
         "Weekday", "Is_Month_End", "Is_Quarter_End",
     ]
+    # 통화별 추가 지표: 전일 변화율로 사용 (예: 유로는 유로/달러 환율)
+    for name in cfg["extra"]:
+        ml[f"{name}_ret_lag1"] = ml[name].pct_change().shift(1) * 100
+        features.append(f"{name}_ret_lag1")
 
     add_direction_features(ml)
     ml = ml.dropna()
@@ -297,7 +316,7 @@ def add_direction_features(ml):
 # 메인 파이프라인
 # ---------------------------------------------------
 def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, log=None,
-                 use_prophet=False, compare_regression=False):
+                 use_prophet=False, compare_regression=False, currency="USD"):
     """
     환율 예측 파이프라인 실행.
 
@@ -321,7 +340,7 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     decay_vector = np.linspace(1.0, 0.5, forecast_days)
 
     # [2] 데이터 수집 + 피처 생성 ------------------------------------
-    ml, features, target_date, adjusted_note = load_dataset(target_date, log=_log)
+    ml, features, target_date, adjusted_note = load_dataset(target_date, log=_log, currency=currency)
 
     ml_step1 = ml.copy()
     ml_step1["Target_Step1"] = ml_step1["Close"].shift(-1) - ml_step1["Close"]
@@ -433,7 +452,11 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         current_rate = global_model_baseline
         crawl_ok = False
     else:
-        rate, msg = fetch_naver_usdkrw()
+        rate, msg = fetch_naver_rate(currency)
+        # 안전장치: 모델 종가와 3% 넘게 차이 나면 다른 통화 값을 잘못 읽은 것으로 보고 버림
+        if rate is not None and abs(rate / global_model_baseline - 1) > 0.03:
+            msg = f"수집값 {rate}이 종가 {global_model_baseline:.2f}와 3% 넘게 달라 무시"
+            rate = None
         if rate is not None:
             current_rate = rate
             crawl_ok = True
@@ -462,8 +485,8 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     today_signal = make_signal(current_rate, lower_band, upper_band)
 
     # [7-2] 🎯 내일 방향 예측 (XGBClassifier) -------------------------
-    # backtest.py에서 회귀(53%) 대비 분류(58.3%)로 검증된 방향 전용 모델.
-    # 타깃을 "값"이 아니라 "오름(1)/내림(0)"으로 직접 학습.
+    # 타깃을 "값"이 아니라 "오름(1)/내림(0)"으로 직접 학습하는 방향 전용 모델.
+    # ※ 1년 walk-forward 검증(backtest.py)에서는 동전던지기와 구분되지 않음 → 참고용.
     _log("내일 방향(상승/하락) 분류 예측 중...")
     dir_df = ml.copy()
     # 마지막 날은 다음 날 값이 없으므로 NaN으로 둬야 학습/검증에서 빠짐.
@@ -593,6 +616,7 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
     best_model_idx = int(np.argmin(scores))
 
     return {
+        "currency": currency,
         "target_date": target_date,
         "forecast_days": forecast_days,
         "adjusted_note": adjusted_note,

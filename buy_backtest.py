@@ -16,7 +16,7 @@
 #   시그널은 대시보드와 똑같이 '그날까지의 최근 20일 종가 ±1σ 밴드'로 판정하고,
 #   실제 매입은 다음 영업일 종가로 체결된다고 봅니다 (아침 자동 예측을 보고 그날 사는 흐름).
 #
-#   실행: python buy_backtest.py  → 콘솔 표 + data/buy_backtest.json
+#   실행: python buy_backtest.py [USD|EUR]  → 콘솔 표 + data/buy_backtest(_eur).json
 # ==============================================================================
 import json
 from datetime import datetime, timedelta, timezone
@@ -25,10 +25,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import sys
+
 from forecast_core import BAND_SIGMA, load_dataset
+from result_io import data_path
 
 KST = timezone(timedelta(hours=9))
-OUT_PATH = Path(__file__).parent / "data" / "buy_backtest.json"
 START = "2020-01-01"
 
 
@@ -77,9 +79,9 @@ def rule_defer(sig, q, b):
     return q + b, 0.0
 
 
-def main():
+def main(currency="USD"):
     today = datetime.now(KST).strftime("%Y-%m-%d")
-    ml, _, _, _ = load_dataset(today, start="2019-06-01")
+    ml, _, _, _ = load_dataset(today, start="2019-06-01", currency=currency)
     close = ml["Close"]
 
     df = pd.DataFrame({"close": close, "signal": band_signals(close),
@@ -104,7 +106,7 @@ def main():
     base = m["매일 나눠 사기"]
     n = len(m)
 
-    print(f"[buy] 기간 {m['month'].iloc[0]} ~ {m['month'].iloc[-1]} ({n}개월) · "
+    print(f"[buy] {currency} · 기간 {m['month'].iloc[0]} ~ {m['month'].iloc[-1]} ({n}개월) · "
           f"체결 = 다음 영업일 종가")
     summary = {}
     lines = []
@@ -134,8 +136,10 @@ def main():
         print(pd.DataFrame({k: v["by_year"] for k, v in summary.items()}).to_string())
     print("※ 평균 차이 ± 범위가 0을 넘나들면 '효과가 있다고 말하기 어렵다'는 뜻입니다.")
 
-    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUT_PATH.write_text(json.dumps({
+    out_path = data_path("buy_backtest", currency)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps({
+        "currency": currency,
         "generated_at": datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
         "period": [m["month"].iloc[0], m["month"].iloc[-1]],
         "months": int(n),
@@ -146,4 +150,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1].upper() if len(sys.argv) > 1 else "USD")

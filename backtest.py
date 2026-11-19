@@ -23,6 +23,7 @@ from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from forecast_core import CLF_PARAMS, DIR_FEATURES, load_dataset
+from result_io import data_path
 
 KST = timezone(timedelta(hours=9))
 DATA_DIR = Path(__file__).parent / "data"
@@ -135,10 +136,10 @@ def score(pred_up, true_up, proba=None, horizon=1):
     return out
 
 
-def main(test_n=250, horizon=1):
+def main(test_n=250, horizon=1, currency="USD"):
     t0 = time.time()
     today = datetime.now(KST).strftime("%Y-%m-%d")
-    ml, features, target_date, _ = load_dataset(today, start="2019-01-01")
+    ml, features, target_date, _ = load_dataset(today, start="2019-01-01", currency=currency)
     extra_same, extra_lag = add_extra_features(ml)
     ml = ml.dropna(subset=extra_same + extra_lag)
     print(f"[backtest] 추가 피처 {len(extra_same)}+{len(extra_lag)}개: {extra_same}")
@@ -150,7 +151,7 @@ def main(test_n=250, horizon=1):
     test_n = min(test_n, len(df) - 300)
     test = df.iloc[-test_n:]
     y = test["Up"].values
-    print(f"[backtest] {horizon}영업일 뒤 방향 · 데이터 {len(df)}일 · 검증 {test_n}일 "
+    print(f"[backtest] {currency} · {horizon}영업일 뒤 방향 · 데이터 {len(df)}일 · 검증 {test_n}일 "
           f"({test.index[0]:%Y-%m-%d} ~ {test.index[-1]:%Y-%m-%d})")
 
     results = {}
@@ -195,10 +196,11 @@ def main(test_n=250, horizon=1):
     print(f"※ 확신일 = 상승확률 {50 + CONF * 100:.0f}% 이상 또는 {50 - CONF * 100:.0f}% 이하인 날")
     print(f"[backtest] 완료 ({time.time() - t0:.0f}초)")
 
-    out_path = DATA_DIR / ("backtest.json" if horizon == 1 else f"backtest_h{horizon}.json")
+    out_path = data_path("backtest" if horizon == 1 else f"backtest_h{horizon}", currency)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "horizon": int(horizon),
+        "currency": currency,
         "generated_at": datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
         "test_days": int(test_n),
         "period": [f"{test.index[0]:%Y-%m-%d}", f"{test.index[-1]:%Y-%m-%d}"],
@@ -210,4 +212,5 @@ def main(test_n=250, horizon=1):
 
 if __name__ == "__main__":
     main(int(sys.argv[1]) if len(sys.argv) > 1 else 250,
-         int(sys.argv[2]) if len(sys.argv) > 2 else 1)
+         int(sys.argv[2]) if len(sys.argv) > 2 else 1,
+         sys.argv[3].upper() if len(sys.argv) > 3 else "USD")

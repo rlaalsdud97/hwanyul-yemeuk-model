@@ -14,7 +14,41 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-LATEST_PATH = Path(__file__).parent / "data" / "latest.json"
+# ---------------------------------------------------
+# 통화 설정 — 새 통화를 추가하려면 여기에 한 줄 추가
+#   ticker : 야후 파이낸스 원화 환율 티커
+#   naver  : 네이버 실시간 시세 코드
+#   extra  : 이 통화에만 추가로 쓰는 지표 {열이름: 티커}
+# ---------------------------------------------------
+CURRENCIES = {
+    "USD": {"label": "원/달러", "unit": "달러", "pair": "USD/KRW", "flag": "🇺🇸", "ticker": "KRW=X",
+            "naver": "FX_USDKRW", "html_class": "usd", "extra": {}},
+    "EUR": {"label": "원/유로", "unit": "유로", "pair": "EUR/KRW", "flag": "🇪🇺", "ticker": "EURKRW=X",
+            "naver": "FX_EURKRW", "html_class": "eur", "extra": {"EURUSD": "EURUSD=X"}},
+}
+
+
+DATA_DIR = Path(__file__).parent / "data"
+LATEST_PATH = DATA_DIR / "latest.json"   # 원/달러 (기존 경로 유지)
+
+
+def _suffix(currency):
+    return "" if currency in (None, "USD") else f"_{currency.lower()}"
+
+
+def latest_path(currency="USD"):
+    """통화별 자동 예측 결과 파일: USD → latest.json, EUR → latest_eur.json"""
+    return DATA_DIR / f"latest{_suffix(currency)}.json"
+
+
+def history_path(currency="USD"):
+    """통화별 실전 예측 기록: USD → history.csv, EUR → history_eur.csv"""
+    return DATA_DIR / f"history{_suffix(currency)}.csv"
+
+
+def data_path(stem, currency="USD", ext="json"):
+    """기타 결과 파일 (예: backtest → backtest_eur.json)"""
+    return DATA_DIR / f"{stem}{_suffix(currency)}.{ext}"
 
 
 def _clean(v):
@@ -39,8 +73,10 @@ def _df_to_records(df):
     return _clean(df.to_dict(orient="records"))
 
 
-def save_result(result, path=LATEST_PATH, extra=None):
-    """run_forecast() 결과를 JSON으로 저장."""
+def save_result(result, path=None, extra=None):
+    """run_forecast() 결과를 JSON으로 저장. path 생략 시 통화별 기본 경로."""
+    if path is None:
+        path = latest_path(result.get("currency", "USD"))
     out = dict(result)
     out["forecast_table"] = _df_to_records(result["forecast_table"])
     hist = result["history"]
@@ -80,7 +116,7 @@ def load_result(path=LATEST_PATH):
 #   - 매일 자동 예측값을 한 줄씩 쌓고, 실제 종가가 나오면 채점합니다.
 #   - 백테스트(과거 재계산)가 아니라 '그날 실제로 낸 예측'의 성적이라 가장 정직한 지표.
 # ==============================================================================
-HISTORY_PATH = Path(__file__).parent / "data" / "history.csv"
+HISTORY_PATH = DATA_DIR / "history.csv"   # 원/달러 (기존 경로 유지)
 
 HISTORY_COLS = [
     "기준일", "기준가", "예측대상일", "몇일후", "예측값", "분류_상승확률",
@@ -94,9 +130,9 @@ def _dir(diff):
     return "▲" if diff > 0 else ("▼" if diff < 0 else "-")
 
 
-def update_history(result, path=HISTORY_PATH):
+def update_history(result, path=None):
     """오늘 예측을 기록에 추가(같은 기준일은 교체)하고, 실제값이 나온 과거 예측을 채점."""
-    path = Path(path)
+    path = Path(path) if path is not None else history_path(result.get("currency", "USD"))
     if path.exists():
         hist = pd.read_csv(path, encoding="utf-8-sig", dtype={"기준일": str, "예측대상일": str})
     else:

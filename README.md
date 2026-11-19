@@ -38,6 +38,12 @@ streamlit run app.py
 **[🚀 예측 실행]** 버튼을 누르면 결과가 표시됩니다.
 같은 설정으로 다시 실행하면 30분 동안은 캐시된 결과가 바로 표시됩니다.
 
+### 💱 지원 통화
+
+- **USD/KRW**, **EUR/KRW** — 대시보드 사이드바에서 선택합니다.
+- 통화별 결과 파일: `data/latest.json`·`history.csv`(달러), `data/latest_eur.json`·`history_eur.csv`(유로)
+- 새 통화 추가는 `result_io.py`의 `CURRENCIES`에 한 줄 추가하면 자동 예측·검증·대시보드에 모두 반영됩니다.
+
 ### ⏰ 매일 아침 자동 예측
 
 - GitHub Actions가 **평일 오전 8:40(한국시간)** 에 전날 종가 기준 5영업일 예측을 돌려 `data/latest.json`을 갱신합니다.
