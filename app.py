@@ -22,6 +22,11 @@ BACKTEST_PATH = Path(__file__).parent / "data" / "backtest.json"
 @st.cache_data(show_spinner=False)
 def _load_backtest(_mtime):
     return json.loads(BACKTEST_PATH.read_text(encoding="utf-8"))
+
+
+@st.cache_data(show_spinner=False)
+def _load_json(path, _mtime):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 # forecast_core(xgboost 등 무거운 라이브러리)는 [직접 실행]을 누를 때만 불러옵니다.
 
 # ------------------------------------------------------------------
@@ -170,11 +175,32 @@ c4.metric("Best 단일모델", f"{result['best_model']}",
 # 시그널 해설
 sig = result["today_signal"]
 if "BUY" in sig:
-    st.success("→ 최근 20일 흐름 대비 **저가 구간**입니다. 분할 매수를 고려할 만합니다.")
+    st.success("→ 최근 20일 흐름 대비 **저가 구간**입니다.")
 elif "HOLD" in sig:
-    st.info("→ 최근 흐름의 **중립 구간**입니다. 하루 더 추이를 관찰하는 것을 권장합니다.")
+    st.info("→ 최근 20일 흐름의 **중립 구간**입니다.")
 else:
-    st.warning("→ 최근 흐름 대비 **고가 구간**입니다. 매수를 보류하고 조정을 기다리는 전략을 권장합니다.")
+    st.warning("→ 최근 20일 흐름 대비 **고가 구간**입니다.")
+
+# 매수 타이밍 검증 결과 (buy_backtest.py, 매주 토요일 갱신)
+BUY_BT_PATH = Path(__file__).parent / "data" / "buy_backtest.json"
+if BUY_BT_PATH.exists():
+    try:
+        bb = _load_json(str(BUY_BT_PATH), BUY_BT_PATH.stat().st_mtime)
+        r = bb["summary"]["시그널 따라 조절"]
+        lo, hi = r["avg_diff_won"] - r["ci95_won"], r["avg_diff_won"] + r["ci95_won"]
+        if hi < 0:
+            verdict = "시그널을 따르면 평균적으로 **더 싸게** 샀습니다."
+        elif lo > 0:
+            verdict = "시그널을 따르면 평균적으로 오히려 **더 비싸게** 샀습니다."
+        else:
+            verdict = "**의미 있는 차이가 없었습니다.** 시그널로 매수 시점을 미루거나 당기기보다 꾸준한 분할 매수를 권장합니다."
+        st.caption(
+            f"📌 매수 타이밍 검증 ({bb['period'][0]} ~ {bb['period'][1]}, {bb['months']}개월): "
+            f"매일 나눠 사기 대비 'BUY 2배·WAIT 건너뛰기' 전략의 평균 매입 환율 차이 "
+            f"{r['avg_diff_won']:+.2f}원/달러 (범위 {lo:+.1f} ~ {hi:+.1f}원). {verdict}"
+        )
+    except Exception:
+        pass
 
 st.markdown("---")
 
