@@ -243,20 +243,35 @@ if direction:
         )
         st.caption("↑ 20일 검증은 우연만으로도 ±20%p 넘게 흔들리는 숫자입니다. 판단은 아래 1년 검증으로 하세요.")
 
-    # 1년(250영업일) walk-forward 검증 결과 — 매주 토요일 자동 갱신 (backtest.py)
+    # 방향 검증 — '매일 오후 3시 가격' 기준(fixed_time_check.py)을 우선 사용.
+    #   야후 종가는 날마다 다른 시각의 가격이라 가짜 되돌림 패턴이 있어 적중률이 부풀려짐
+    #   (2026-11-19 확인: 유로 56.8% → 고정 시각 48.8%). 매주 토요일 자동 갱신.
+    _fp = data_path("fixed_check", currency)
+    fixed = _load_json(str(_fp), _fp.stat().st_mtime) if _fp.exists() else None
     _bp = data_path("backtest", currency)
     bt_year = _load_json(str(_bp), _bp.stat().st_mtime) if _bp.exists() else None
-    cur = (bt_year or {}).get("results", {}).get("A. 현재 모델 (수준 피처 + XGB)")
+    cur_fixed = ((fixed or {}).get("results", {}).get("고정 15:00") or {}).get("model")
+    cur_yahoo = (bt_year or {}).get("results", {}).get("A. 현재 모델 (수준 피처 + XGB)")
+    if cur_fixed:
+        cur, label = cur_fixed, (f"**방향 검증 (매일 오후 3시 가격 기준)** "
+                                 f"{fixed['period'][0]} ~ {fixed['period'][1]}, {cur_fixed['n']}일")
+    elif cur_yahoo:
+        cur, label = cur_yahoo, (f"**1년 검증 (야후 종가 기준)** "
+                                 f"{bt_year['period'][0]} ~ {bt_year['period'][1]}, {cur_yahoo['n']}일")
+    else:
+        cur = None
     if cur:
         lo, hi = cur["hit"] - cur["ci95"], cur["hit"] + cur["ci95"]
-        msg = (f"**1년 검증** ({bt_year['period'][0]} ~ {bt_year['period'][1]}, {cur['n']}일): "
-               f"방향 적중률 **{cur['hit']}%** (오차범위 {lo:.0f}~{hi:.0f}%)")
+        msg = f"{label}: 방향 적중률 **{cur['hit']}%** (오차범위 {lo:.0f}~{hi:.0f}%)"
         if lo > 50:
             st.success(msg + " — 오차범위가 50%보다 위에 있습니다. "
-                       "다만 과거 1년 기준이므로, 아래 실전 기록에서도 유지되는지 확인하세요.")
+                       "실전 기록에서도 유지되는지 확인하세요.")
         else:
             st.warning(msg + " — 오차범위에 50%가 포함돼 **동전던지기와 구분되지 않습니다.** "
                        "내일 방향 예측은 참고용으로만 보세요.")
+        if cur_fixed and cur_yahoo:
+            st.caption(f"참고: 야후 종가로 검증하면 {cur_yahoo['hit']}%가 나오지만, 야후 종가는 날마다 "
+                       "다른 시각의 가격이라 실제로 없는 '되돌림' 패턴이 섞여 부풀려진 숫자입니다.")
 
     # 확신도 경고
     if direction["confidence"] < 55:
@@ -523,8 +538,9 @@ with right:
 # ------------------------------------------------------------------
 st.markdown("---")
 st.subheader("📒 실전 예측 기록")
-st.caption("매일 아침 낸 예측을 실제 종가가 나온 뒤 채점합니다. 과거를 다시 계산한 백테스트와 달리, "
-           "실제로 운영하면서 쌓인 성적이라 가장 믿을 만한 지표입니다.")
+st.caption("매일 아침 낸 예측을 실제 종가가 나온 뒤 채점합니다. 과거를 다시 계산한 백테스트와 달리 "
+           "실제로 운영하면서 쌓인 성적입니다. ⚠️ 단, 채점 기준이 야후 종가(날마다 다른 시각의 가격)라 "
+           "방향 적중률이 실제보다 높게 나올 수 있습니다. 위의 '오후 3시 가격 기준' 검증과 함께 보세요.")
 
 
 @st.cache_data(show_spinner=False)
