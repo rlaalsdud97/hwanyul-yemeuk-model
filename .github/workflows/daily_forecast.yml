@@ -1,0 +1,41 @@
+# 매일 아침 자동 예측 → data/latest.json 저장 → 대시보드가 바로 읽어서 표시
+name: daily-forecast
+
+on:
+  schedule:
+    # 평일 오전 8:40 (한국시간) = 전날 23:40 UTC (일~목)
+    - cron: "40 23 * * 0-4"
+  workflow_dispatch:   # Actions 탭에서 [Run workflow] 버튼으로 수동 실행
+
+permissions:
+  contents: write      # 결과 파일을 저장소에 커밋하기 위해 필요
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Run forecast
+        run: python daily_forecast.py
+
+      - name: Commit result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data/latest.json
+          if git diff --cached --quiet; then
+            echo "변경 없음"
+          else
+            git commit -m "자동 예측 결과 업데이트 ($(TZ=Asia/Seoul date +%F))"
+            git push
+          fi

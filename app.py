@@ -9,7 +9,8 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-from forecast_core import run_forecast
+from result_io import LATEST_PATH, load_result
+# forecast_core(xgboost 등 무거운 라이브러리)는 [직접 실행]을 누를 때만 불러옵니다.
 
 # ------------------------------------------------------------------
 # 페이지 기본 설정
@@ -27,7 +28,9 @@ st.caption("KOSPI · VIX 결합 앙상블(XGBoost + ARIMA, 선택: Prophet) 퀀�
 # 사이드바 — 설정
 # ------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ 예측 설정")
+    st.header("⚙️ 직접 실행")
+    st.caption("평소엔 매일 아침 자동 예측 결과가 바로 표시됩니다. "
+               "다른 날짜·기간이 필요할 때만 여기서 실행하세요 (1분 안팎 소요).")
     target_date = st.date_input(
         "기준일 (과거 날짜 = 백테스트)",
         value=date.today(),
@@ -44,7 +47,11 @@ with st.sidebar:
             help="켜면 백테스트 학습 횟수가 2배가 됩니다.",
         )
     st.markdown("---")
-    run_btn = st.button("🚀 예측 실행", type="primary", use_container_width=True)
+    run_btn = st.button("🚀 직접 예측 실행", use_container_width=True)
+    if "result" in st.session_state:
+        if st.button("↩️ 자동 예측 결과로 돌아가기", use_container_width=True):
+            del st.session_state["result"]
+            st.rerun()
     st.markdown("---")
     st.caption(
         "⚠️ 방향성 정확도가 50% 부근이면 방향 예측은 신뢰하기 어렵습니다. "
@@ -60,6 +67,7 @@ with st.sidebar:
 @st.cache_data(ttl=1800, show_spinner=False)
 def cached_forecast(target_date, forecast_days, use_realtime, use_prophet,
                     compare_regression):
+    from forecast_core import run_forecast
     return run_forecast(
         target_date=target_date,
         forecast_days=forecast_days,
@@ -84,13 +92,31 @@ if run_btn:
     except Exception as e:
         st.error(f"예측 중 오류가 발생했습니다: {e}")
         st.stop()
+    st.rerun()  # 사이드바에 [자동 예측 결과로 돌아가기] 버튼이 바로 보이도록 (캐시라 즉시 끝남)
 
-# 최초 진입 안내
-if "result" not in st.session_state:
-    st.info("👈 왼쪽 사이드바에서 설정을 확인하고 **[🚀 예측 실행]** 버튼을 눌러주세요.")
-    st.stop()
+# ------------------------------------------------------------------
+# 표시할 결과 고르기: 직접 실행 결과 > 매일 아침 자동 예측 결과
+# ------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_auto_result(_mtime):
+    # _mtime: 파일이 갱신되면 캐시를 새로 읽도록 하는 키
+    return load_result()
 
-result = st.session_state["result"]
+
+if "result" in st.session_state:
+    result = st.session_state["result"]
+else:
+    result = load_auto_result(LATEST_PATH.stat().st_mtime) if LATEST_PATH.exists() else None
+    if result is None:
+        st.info("아직 자동 예측 결과가 없습니다. 👈 왼쪽 사이드바에서 **[🚀 직접 예측 실행]**을 눌러주세요.")
+        st.stop()
+
+is_auto = result.get("source") == "auto"
+if is_auto:
+    st.info(f"🤖 **매일 아침 자동 예측** · 기준일 {result['target_date']} 종가 · "
+            f"생성 {result.get('generated_at', '?')} (한국시간)")
+else:
+    st.info(f"🛠️ **직접 실행 결과** · 기준일 {result['target_date']}")
 
 # ------------------------------------------------------------------
 # 상단 알림 (크롤링/조정 상태)
@@ -99,10 +125,11 @@ if result.get("adjusted_note"):
     st.warning("⚠️ " + result["adjusted_note"])
 if result.get("prophet_note"):
     st.warning("⚠️ " + result["prophet_note"])
-if result.get("crawl_ok"):
-    st.success("✅ " + result["crawl_msg"])
-else:
-    st.warning("⚠️ " + result["crawl_msg"])
+if not is_auto:  # 자동 예측은 실시간 보정을 쓰지 않으므로 안내 생략
+    if result.get("crawl_ok"):
+        st.success("✅ " + result["crawl_msg"])
+    else:
+        st.warning("⚠️ " + result["crawl_msg"])
 
 # ------------------------------------------------------------------
 # 🎯 요약 카드

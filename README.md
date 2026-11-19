@@ -15,6 +15,9 @@ KOSPI · VIX 등 거시지표를 결합한 **앙상블(XGBoost + ARIMA + Prophet
 | `forecast_core.py` | 예측 엔진. `run_forecast()` 함수가 데이터 수집 → 모델 학습 → 예측 → 시그널 산출까지 수행하고 결과를 dict로 반환합니다. |
 | `app.py` | Streamlit 대시보드. 요약 카드 · 대화형 그래프 · 예측표 · 성능 지표 · 설정 사이드바를 제공합니다. |
 | `exchange_forecast_v8.py` | 콘솔용 원본 파이프라인 스크립트 (Colab 실행용). |
+| `daily_forecast.py` | 매일 아침 자동 예측 스크립트. 결과를 `data/latest.json`에 저장합니다. |
+| `result_io.py` | 예측 결과를 JSON으로 저장/불러오기. 대시보드는 이 파일만 읽어서 빠르게 뜹니다. |
+| `.github/workflows/daily_forecast.yml` | 평일 오전 8:40(한국시간)에 `daily_forecast.py`를 자동 실행하는 GitHub Actions 설정. |
 | `requirements.txt` | 의존성 목록. |
 
 ---
@@ -34,6 +37,13 @@ streamlit run app.py
 실행하면 브라우저가 열리고, 왼쪽 사이드바에서 **기준일 · 예측 기간**을 설정한 뒤
 **[🚀 예측 실행]** 버튼을 누르면 결과가 표시됩니다.
 같은 설정으로 다시 실행하면 30분 동안은 캐시된 결과가 바로 표시됩니다.
+
+### ⏰ 매일 아침 자동 예측
+
+- GitHub Actions가 **평일 오전 8:40(한국시간)** 에 전날 종가 기준 5영업일 예측을 돌려 `data/latest.json`을 갱신합니다.
+- 대시보드는 열자마자 이 결과를 보여줍니다 (모델 학습 없음).
+- 지금 바로 갱신하고 싶으면: GitHub 저장소 → **Actions** 탭 → `daily-forecast` → **Run workflow**.
+- 다른 기준일·기간이 필요하면 대시보드 사이드바의 **[🚀 직접 예측 실행]** 을 사용합니다.
 
 ### 2) 콘솔 스크립트 (Colab 등)
 
