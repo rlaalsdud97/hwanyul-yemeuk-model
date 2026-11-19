@@ -171,6 +171,26 @@ def fetch_naver_rate(currency="USD"):
 # ---------------------------------------------------
 # 데이터 수집 + 피처 생성 (예측·백테스트 공용)
 # ---------------------------------------------------
+def _download_with_retry(tickers, start, end, _log, tries=3):
+    """
+    야후에서 여러 티커를 받되, 일부가 빈 채로 오면(예: 'database is locked') 다시 시도.
+    끝까지 비어 있으면 어떤 티커가 문제인지 알려주는 오류를 낸다.
+    (한 티커라도 비면 ffill/dropna 후 데이터 전체가 사라지기 때문)
+    """
+    import time
+    missing = tickers
+    for attempt in range(1, tries + 1):
+        raw = yf.download(tickers, start=start, end=end, progress=False, threads=False)
+        closes = raw["Close"] if "Close" in raw else None
+        missing = [t for t in tickers
+                   if closes is None or t not in closes or closes[t].notna().sum() == 0]
+        if not missing:
+            return raw
+        _log(f"⚠️ 데이터 수신 실패 {missing} → 재시도 {attempt}/{tries}")
+        time.sleep(3 * attempt)
+    raise RuntimeError(f"야후 파이낸스에서 다음 지표를 받지 못했습니다: {missing}")
+
+
 def load_dataset(target_date, log=None, start="2022-01-01", currency="USD"):
     """
     야후 파이낸스에서 지표를 받아 피처를 만든다.
@@ -189,7 +209,7 @@ def load_dataset(target_date, log=None, start="2022-01-01", currency="USD"):
         "VIX": "^VIX", "KOSPI": "^KS11", **cfg["extra"],
     }
     end_fetch_date = (pd.to_datetime(target_date) + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
-    raw = yf.download(list(tickers.values()), start=start, end=end_fetch_date, progress=False)
+    raw = _download_with_retry(list(tickers.values()), start, end_fetch_date, _log)
 
     idx = pd.IndexSlice
     ml = pd.DataFrame({
