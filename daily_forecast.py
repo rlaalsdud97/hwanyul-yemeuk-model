@@ -8,7 +8,7 @@
 from datetime import datetime, timedelta, timezone
 
 from forecast_core import run_forecast
-from result_io import save_result
+from result_io import save_result, update_history
 
 KST = timezone(timedelta(hours=9))
 FORECAST_DAYS = 5
@@ -30,6 +30,8 @@ def main():
         "generated_at": now.strftime("%Y-%m-%d %H:%M"),
     })
     print(f"[daily] 저장 완료: {path}")
+    hist = update_history(result)
+    print(f"[daily] 예측 기록 {len(hist)}행 (채점 완료 {int(hist['실제값'].notna().sum())}행)")
 
 
 if __name__ == "__main__":

@@ -73,3 +73,104 @@ def load_result(path=LATEST_PATH):
     if d.get("direction") is not None:
         d["direction"]["backtest_table"] = pd.DataFrame(bt) if bt else None
     return d
+
+
+# ==============================================================================
+# 📒 실전 예측 기록 (data/history.csv)
+#   - 매일 자동 예측값을 한 줄씩 쌓고, 실제 종가가 나오면 채점합니다.
+#   - 백테스트(과거 재계산)가 아니라 '그날 실제로 낸 예측'의 성적이라 가장 정직한 지표.
+# ==============================================================================
+HISTORY_PATH = Path(__file__).parent / "data" / "history.csv"
+
+HISTORY_COLS = [
+    "기준일", "기준가", "예측대상일", "몇일후", "예측값", "분류_상승확률",
+    "실제값", "오차", "예측방향", "실제방향", "방향적중",
+]
+
+
+def _dir(diff):
+    if diff is None or pd.isna(diff):
+        return None
+    return "▲" if diff > 0 else ("▼" if diff < 0 else "-")
+
+
+def update_history(result, path=HISTORY_PATH):
+    """오늘 예측을 기록에 추가(같은 기준일은 교체)하고, 실제값이 나온 과거 예측을 채점."""
+    path = Path(path)
+    if path.exists():
+        hist = pd.read_csv(path, encoding="utf-8-sig", dtype={"기준일": str, "예측대상일": str})
+    else:
+        hist = pd.DataFrame(columns=HISTORY_COLS)
+
+    closes = result["history"]  # 최근 30일 실제 종가 (index=날짜)
+    base_date = str(result["target_date"])
+    base = float(closes.iloc[-1])
+    up_proba = (result.get("direction") or {}).get("up_proba")
+
+    rows = []
+    for h, (d, v) in enumerate(zip(result["forecast_dates"], result["ensemble_forecast"]), start=1):
+        rows.append({
+            "기준일": base_date, "기준가": round(base, 2), "예측대상일": d, "몇일후": h,
+            "예측값": round(float(v), 2),
+            "분류_상승확률": up_proba if h == 1 else None,
+        })
+    hist = hist[hist["기준일"] != base_date]
+    hist = pd.concat([hist, pd.DataFrame(rows)], ignore_index=True)
+    # 빈 열은 숫자형(float)으로 읽혀서 '▲' 같은 글자를 못 넣으므로 형식을 명시
+    for c in ["기준가", "예측값", "분류_상승확률", "실제값", "오차"]:
+        hist[c] = pd.to_numeric(hist[c], errors="coerce")
+    for c in ["예측방향", "실제방향", "방향적중"]:
+        hist[c] = hist[c].astype(object)
+    hist["몇일후"] = pd.to_numeric(hist["몇일후"]).astype(int)
+
+    # 채점: 실제 종가가 확보된 예측대상일만
+    actual = {d.strftime("%Y-%m-%d"): float(x) for d, x in closes.items()}
+    for i, r in hist.iterrows():
+        a = actual.get(str(r["예측대상일"]))
+        if a is None and pd.notna(r.get("실제값")):
+            continue  # 이미 채점된 행 유지
+        if a is None:
+            continue
+        hist.at[i, "실제값"] = round(a, 2)
+        hist.at[i, "오차"] = round(float(r["예측값"]) - a, 2)
+        p_dir = _dir(float(r["예측값"]) - float(r["기준가"]))
+        a_dir = _dir(a - float(r["기준가"]))
+        hist.at[i, "예측방향"] = p_dir
+        hist.at[i, "실제방향"] = a_dir
+        hist.at[i, "방향적중"] = None if a_dir == "-" else bool(p_dir == a_dir)
+
+    hist = hist.sort_values(["기준일", "몇일후"]).reindex(columns=HISTORY_COLS)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    hist.to_csv(path, index=False, encoding="utf-8-sig")  # 엑셀에서 한글 안 깨지게
+    return hist
+
+
+def load_history(path=HISTORY_PATH):
+    path = Path(path)
+    if not path.exists():
+        return None
+    return pd.read_csv(path, encoding="utf-8-sig", dtype={"기준일": str, "예측대상일": str})
+
+
+def summarize_history(hist):
+    """채점된 예측의 성적 요약. 채점된 게 없으면 None."""
+    if hist is None or hist.empty:
+        return None
+    done = hist[hist["실제값"].notna()]
+    if done.empty:
+        return None
+    d1 = done[done["몇일후"] == 1]
+    hit = d1["방향적중"].dropna().astype(str).str.lower() == "true"
+    clf = d1.dropna(subset=["분류_상승확률"])
+    clf = clf[clf["실제방향"].isin(["▲", "▼"])]
+    clf_hit = ((clf["분류_상승확률"] >= 50) == (clf["실제방향"] == "▲"))
+    return {
+        "days": int(done["기준일"].nunique()),
+        "n": int(len(done)),
+        "mae": round(float(done["오차"].abs().mean()), 2),
+        "mae_d1": round(float(d1["오차"].abs().mean()), 2) if len(d1) else None,
+        "dir_n": int(len(hit)),
+        "dir_rate": round(float(hit.mean() * 100), 1) if len(hit) else None,
+        "clf_n": int(len(clf_hit)),
+        "clf_rate": round(float(clf_hit.mean() * 100), 1) if len(clf_hit) else None,
+    }

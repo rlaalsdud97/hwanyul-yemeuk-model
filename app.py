@@ -3,13 +3,15 @@
 #   실행:  streamlit run app.py
 #   구성:  ⚙️ 사이드바 설정 | 🎯 요약카드 | 📈 대화형 그래프 | 📋 예측표 | 📊 성능지표
 # ==============================================================================
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+
+import numpy as np
 
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-from result_io import LATEST_PATH, load_result
+from result_io import LATEST_PATH, HISTORY_PATH, load_result, load_history, summarize_history
 # forecast_core(xgboost 등 무거운 라이브러리)는 [직접 실행]을 누를 때만 불러옵니다.
 
 # ------------------------------------------------------------------
@@ -115,6 +117,18 @@ is_auto = result.get("source") == "auto"
 if is_auto:
     st.info(f"🤖 **매일 아침 자동 예측** · 기준일 {result['target_date']} 종가 · "
             f"생성 {result.get('generated_at', '?')} (한국시간)")
+    # 자동 예측이 실패해 오래된 결과가 남아 있으면 경고 (영업일 기준 2일 이상 경과)
+    try:
+        gen_day = str(result.get("generated_at", ""))[:10]
+        today_kst = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+        if gen_day and np.busday_count(gen_day, today_kst) >= 2:
+            st.error(
+                f"🚨 **오래된 예측입니다.** 마지막 자동 예측이 {gen_day}에 생성된 뒤 갱신되지 않았습니다. "
+                "GitHub 저장소 → Actions 탭 → daily-forecast 실행 기록을 확인하거나, "
+                "사이드바의 [🚀 직접 예측 실행]으로 최신 예측을 확인하세요."
+            )
+    except Exception:
+        pass
 else:
     st.info(f"🛠️ **직접 실행 결과** · 기준일 {result['target_date']}")
 
@@ -451,6 +465,45 @@ with right:
             st.success(f"방향성 {da}% — 유의미한 수준입니다.")
     else:
         st.info("성능 지표를 계산할 수 없습니다 (검증 표본 부족).")
+
+# ------------------------------------------------------------------
+# 📒 실전 예측 기록 — 매일 자동 예측을 실제 환율로 채점한 결과
+# ------------------------------------------------------------------
+st.markdown("---")
+st.subheader("📒 실전 예측 기록")
+st.caption("매일 아침 낸 예측을 실제 종가가 나온 뒤 채점합니다. 과거를 다시 계산한 백테스트와 달리, "
+           "실제로 운영하면서 쌓인 성적이라 가장 믿을 만한 지표입니다.")
+
+
+@st.cache_data(show_spinner=False)
+def _load_history(_mtime):
+    return load_history()
+
+
+hist = _load_history(HISTORY_PATH.stat().st_mtime) if HISTORY_PATH.exists() else None
+summary = summarize_history(hist)
+if summary is None:
+    st.info("기록이 쌓이는 중입니다. 다음 영업일 아침부터 채점 결과가 나타납니다.")
+else:
+    h1, h2, h3, h4 = st.columns(4)
+    h1.metric("채점된 예측일", f"{summary['days']}일")
+    h2.metric("내일 예측 평균오차", f"{summary['mae_d1']} 원" if summary["mae_d1"] is not None else "-")
+    h3.metric("내일 방향 적중 (앙상블)",
+              f"{summary['dir_rate']}%" if summary["dir_rate"] is not None else "-",
+              help=f"채점 {summary['dir_n']}건. 기준가 대비 다음 영업일 오르내림")
+    h4.metric("내일 방향 적중 (분류모델)",
+              f"{summary['clf_rate']}%" if summary["clf_rate"] is not None else "-",
+              help=f"채점 {summary['clf_n']}건. 상승확률 50% 이상이면 상승 예측으로 간주")
+    if summary["dir_n"] < 40:
+        st.caption(f"⚠️ 아직 {summary['dir_n']}건이라 적중률이 크게 흔들릴 수 있습니다. "
+                   "최소 40건(약 2개월) 이상 쌓인 뒤에 판단하세요.")
+if hist is not None and not hist.empty:
+    with st.expander("기록 전체 보기"):
+        st.dataframe(hist.sort_values(["기준일", "몇일후"], ascending=[False, True]),
+                     use_container_width=True, hide_index=True)
+        st.download_button("📥 예측 기록 CSV 다운로드",
+                           data=hist.to_csv(index=False).encode("utf-8-sig"),
+                           file_name="forecast_history.csv", mime="text/csv")
 
 st.markdown("---")
 st.caption(
