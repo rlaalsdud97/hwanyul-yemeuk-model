@@ -1,0 +1,14 @@
+name: probe-data-sources
+on:
+  push:
+    branches: [probe-data-sources]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: "3.11"}
+      - run: pip install -q yfinance pandas requests lxml html5lib beautifulsoup4 pykrx
+      - run: python probe_sources.py
