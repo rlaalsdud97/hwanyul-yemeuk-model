@@ -2,9 +2,12 @@
 # backtest.py — 방향 예측 1년 검증 (walk-forward)
 #   - 최근 N 영업일 각각에 대해 "그날까지의 데이터로만" 학습 → 다음 날 방향 예측 → 채점
 #   - 여러 모델/피처 조합과 단순 기준선을 같은 잣대로 비교합니다.
-#   - 실행:  python backtest.py            (기본 250일)
-#            python backtest.py 120         (검증 일수 지정)
-#   - 결과: 콘솔 표 + data/backtest.json (대시보드 표시용)
+#   - 실행:  python backtest.py              (내일 방향, 250일)
+#            python backtest.py 500 5        (5영업일 뒤 방향, 500일)
+#   - 결과: 콘솔 표 + data/backtest.json (h=1) / data/backtest_h5.json (h=5)
+#   - h일 뒤 방향은 정답이 h일 뒤에야 확정되므로, 학습에는 그 시점에 정답이
+#     확정된 행만 씁니다 (미래정보 누수 방지). 또 검증 표본이 서로 겹치므로
+#     오차범위는 '유효 표본 = 일수 / h' 로 넓혀서 계산합니다.
 # ==============================================================================
 import json
 import sys
@@ -22,7 +25,7 @@ from xgboost import XGBClassifier
 from forecast_core import CLF_PARAMS, DIR_FEATURES, load_dataset
 
 KST = timezone(timedelta(hours=9))
-OUT_PATH = Path(__file__).parent / "data" / "backtest.json"
+DATA_DIR = Path(__file__).parent / "data"
 CONF = 0.10  # 확신 구간: 상승확률이 60% 이상 또는 40% 이하인 날만
 
 
@@ -43,28 +46,30 @@ SIMPLE_PARAMS = {"n_estimators": 150, "max_depth": 2, "learning_rate": 0.03,
                  "subsample": 0.8, "colsample_bytree": 0.8, "min_child_weight": 5}
 
 
-def walk_forward(df, feats, make_model, test_n, window=None):
-    """각 날짜 i: i 이전 행으로 학습 → i 행의 다음날 방향 확률 예측."""
+def walk_forward(df, feats, make_model, test_n, window=None, horizon=1):
+    """각 날짜 i: 그 시점에 정답이 확정된 행(i-horizon 까지)으로 학습 → i 행 방향 확률 예측."""
     probas = []
     for i in range(len(df) - test_n, len(df)):
-        lo = 0 if window is None else max(0, i - window)
-        tr = df.iloc[lo:i]
+        end = i - horizon + 1
+        lo = 0 if window is None else max(0, end - window)
+        tr = df.iloc[lo:end]
         m = make_model(tr["Up"]).fit(tr[feats], tr["Up"])
         probas.append(float(m.predict_proba(df[feats].iloc[[i]])[0][1]))
     return np.array(probas)
 
 
-def score(pred_up, true_up, proba=None):
+def score(pred_up, true_up, proba=None, horizon=1):
     pred_up = np.asarray(pred_up, dtype=bool)
     true_up = np.asarray(true_up, dtype=bool)
     hit = pred_up == true_up
     n = len(hit)
     p = hit.mean()
     half = n // 2
+    n_eff = max(n / horizon, 1)  # 겹치는 표본 보정
     out = {
         "n": int(n),
         "hit": round(float(p * 100), 1),
-        "ci95": round(float(1.96 * np.sqrt(p * (1 - p) / n) * 100), 1),
+        "ci95": round(float(1.96 * np.sqrt(p * (1 - p) / n_eff) * 100), 1),
         "first_half": round(float(hit[:half].mean() * 100), 1),
         "second_half": round(float(hit[half:].mean() * 100), 1),
     }
@@ -76,28 +81,30 @@ def score(pred_up, true_up, proba=None):
     return out
 
 
-def main(test_n=250):
+def main(test_n=250, horizon=1):
     t0 = time.time()
     today = datetime.now(KST).strftime("%Y-%m-%d")
     ml, features, target_date, _ = load_dataset(today, start="2019-01-01")
 
-    nxt = ml["Close"].shift(-1)
+    nxt = ml["Close"].shift(-horizon)
     ml["Up"] = (nxt > ml["Close"]).astype(float).where(nxt.notna())
     df = ml[(nxt != ml["Close"])].dropna(subset=["Up"]).copy()  # 보합(변동 0) 날 제외
     df["Up"] = df["Up"].astype(int)
     test_n = min(test_n, len(df) - 300)
     test = df.iloc[-test_n:]
     y = test["Up"].values
-    print(f"[backtest] 데이터 {len(df)}일 · 검증 {test_n}일 "
+    print(f"[backtest] {horizon}영업일 뒤 방향 · 데이터 {len(df)}일 · 검증 {test_n}일 "
           f"({test.index[0]:%Y-%m-%d} ~ {test.index[-1]:%Y-%m-%d})")
 
     results = {}
 
     # --- 기준선 -----------------------------------------------------------
-    results["기준선: 항상 상승"] = score(np.ones(test_n), y)
-    prev_up = (df["Ret1"] > 0).values[-test_n:]
-    results["기준선: 오늘 방향 그대로"] = score(prev_up, y)
-    results["기준선: 오늘 반대로"] = score(~prev_up, y)
+    results["기준선: 항상 상승"] = score(np.ones(test_n), y, horizon=horizon)
+    trend_col = "Ret1" if horizon == 1 else ("Ret5" if horizon <= 5 else "Ret10")
+    prev_up = (df[trend_col] > 0).values[-test_n:]
+    label = "오늘" if horizon == 1 else f"최근 {trend_col[3:]}일 추세"
+    results[f"기준선: {label} 방향 그대로"] = score(prev_up, y, horizon=horizon)
+    results[f"기준선: {label} 반대로"] = score(~prev_up, y, horizon=horizon)
 
     # --- 모델 -------------------------------------------------------------
     configs = {
@@ -110,9 +117,9 @@ def main(test_n=250):
     probas = {}
     for name, (feats, maker, window) in configs.items():
         t = time.time()
-        pr = walk_forward(df, feats, maker, test_n, window)
+        pr = walk_forward(df, feats, maker, test_n, window, horizon)
         probas[name] = pr
-        results[name] = score(pr >= 0.5, y, pr)
+        results[name] = score(pr >= 0.5, y, pr, horizon)
         print(f"  - {name}: {results[name]['hit']}%  ({time.time() - t:.0f}초)")
 
     # --- 출력 -------------------------------------------------------------
@@ -130,8 +137,10 @@ def main(test_n=250):
     print(f"※ 확신일 = 상승확률 {50 + CONF * 100:.0f}% 이상 또는 {50 - CONF * 100:.0f}% 이하인 날")
     print(f"[backtest] 완료 ({time.time() - t0:.0f}초)")
 
-    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUT_PATH.write_text(json.dumps({
+    out_path = DATA_DIR / ("backtest.json" if horizon == 1 else f"backtest_h{horizon}.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps({
+        "horizon": int(horizon),
         "generated_at": datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
         "test_days": int(test_n),
         "period": [f"{test.index[0]:%Y-%m-%d}", f"{test.index[-1]:%Y-%m-%d}"],
@@ -142,4 +151,5 @@ def main(test_n=250):
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else 250)
+    main(int(sys.argv[1]) if len(sys.argv) > 1 else 250,
+         int(sys.argv[2]) if len(sys.argv) > 2 else 1)
