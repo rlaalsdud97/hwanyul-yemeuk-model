@@ -11,4 +11,4 @@ jobs:
       - uses: actions/setup-python@v6
         with: {python-version: "3.11"}
       - run: pip install -q -r requirements.txt
-      - run: python probe_timing.py
+      - run: python fixed_time_check.py USD EUR
