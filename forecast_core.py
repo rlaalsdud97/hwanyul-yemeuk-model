@@ -157,40 +157,25 @@ def fetch_naver_usdkrw():
 
 
 # ---------------------------------------------------
-# 메인 파이프라인
+# 데이터 수집 + 피처 생성 (예측·백테스트 공용)
 # ---------------------------------------------------
-def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, log=None,
-                 use_prophet=False, compare_regression=False):
+def load_dataset(target_date, log=None, start="2022-01-01"):
     """
-    환율 예측 파이프라인 실행.
-
-    Parameters
-    ----------
-    target_date : str  예측 기준일 (과거 날짜면 백테스트 모드)
-    forecast_days : int  예측할 미래 영업일 수
-    use_realtime : bool  네이버 실시간 환율 보정 사용 여부
-    log : callable|None  진행상황 로그 콜백 (예: st.write). None이면 무시.
-    use_prophet : bool  Prophet 포함 여부. 가중치 상한이 5%라 영향은 작고 학습은 무거워서 기본 OFF.
-    compare_regression : bool  방향 백테스트에서 회귀 모델 비교까지 돌릴지 여부 (학습 횟수 2배).
-
-    Returns
-    -------
-    dict  예측 결과 전체 (아래 키 참조)
+    야후 파이낸스에서 지표를 받아 피처를 만든다.
+    반환: (ml DataFrame, 회귀용 features 리스트, 조정된 target_date, 휴장일 안내문)
+    ml 에는 방향 분류용 피처(DIR_FEATURES)도 함께 들어 있다.
     """
     def _log(msg):
         if log is not None:
             log(msg)
 
-    decay_vector = np.linspace(1.0, 0.5, forecast_days)
-
-    # [2] 데이터 수집 -------------------------------------------------
     _log("데이터 수집 및 Feature 생성 중 (VIX, KOSPI 융합)...")
     tickers = {
         "KRW": "KRW=X", "DXY": "DX-Y.NYB", "US10Y": "^TNX",
         "VIX": "^VIX", "KOSPI": "^KS11",
     }
     end_fetch_date = (pd.to_datetime(target_date) + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
-    raw = yf.download(list(tickers.values()), start="2022-01-01", end=end_fetch_date, progress=False)
+    raw = yf.download(list(tickers.values()), start=start, end=end_fetch_date, progress=False)
 
     idx = pd.IndexSlice
     ml = pd.DataFrame({
@@ -262,7 +247,81 @@ def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, l
         "VIX_delta_lag1", "KOSPI_return_lag1",
         "Weekday", "Is_Month_End", "Is_Quarter_End",
     ]
+
+    add_direction_features(ml)
     ml = ml.dropna()
+    return ml, features, target_date, adjusted_note
+
+
+# 방향 분류용 '변화량·비율' 피처 — 환율 '수준'(1,300원대 같은 값) 대신
+# 얼마나 변했는지 / 평균선에서 얼마나 떨어져 있는지를 본다.
+DIR_FEATURES = [
+    "Ret1", "Ret2", "Ret5", "Ret10", "Ret20", "Ret1_lag1", "Ret1_lag2",
+    "Dist_MA5", "Dist_MA20", "Dist_MA60", "MA5_slope",
+    "Vol5", "Vol20", "Vol_ratio", "Range_pct", "RSI14", "MACD_hist_pct", "PctB20",
+    "DXY_ret_lag1", "US10Y_chg_lag1", "VIX_chg_lag1", "VIX_level_lag1",
+    "KOSPI_ret", "KOSPI_ret_lag1",
+    "Weekday", "Is_Month_End",
+]
+
+
+def add_direction_features(ml):
+    c = ml["Close"]
+    r1 = c.pct_change() * 100
+    ml["Ret1"] = r1
+    for n in [2, 5, 10, 20]:
+        ml[f"Ret{n}"] = c.pct_change(n) * 100
+    ml["Ret1_lag1"] = r1.shift(1)
+    ml["Ret1_lag2"] = r1.shift(2)
+    for n in [5, 20, 60]:
+        ml[f"Dist_MA{n}"] = (c / c.rolling(n).mean() - 1) * 100
+    ml["MA5_slope"] = c.rolling(5).mean().pct_change(3) * 100
+    ml["Vol5"] = r1.rolling(5).std()
+    ml["Vol20"] = r1.rolling(20).std()
+    ml["Vol_ratio"] = ml["Vol5"] / (ml["Vol20"] + 1e-9)
+    ml["Range_pct"] = (ml["High"] - ml["Low"]) / c * 100
+    ml["MACD_hist_pct"] = (ml["MACD"] - ml["MACD_Signal"]) / c * 100
+    m20, s20 = c.rolling(20).mean(), c.rolling(20).std()
+    ml["PctB20"] = (c - (m20 - 2 * s20)) / (4 * s20 + 1e-9)
+    # 미국 지표(DXY·금리·VIX)는 하루 늦춰서 사용 (발표 시각 차이로 인한 미래정보 방지)
+    ml["DXY_ret_lag1"] = ml["DXY"].pct_change().shift(1) * 100
+    ml["US10Y_chg_lag1"] = ml["US10Y"].diff().shift(1)
+    ml["VIX_chg_lag1"] = ml["VIX"].diff().shift(1)
+    ml["VIX_level_lag1"] = ml["VIX"].shift(1)
+    # KOSPI는 한국 장 마감(15:30)이 환율 일봉 마감보다 빨라 당일 값 사용 가능
+    ml["KOSPI_ret"] = ml["KOSPI"].pct_change() * 100
+    ml["KOSPI_ret_lag1"] = ml["KOSPI_ret"].shift(1)
+
+
+# ---------------------------------------------------
+# 메인 파이프라인
+# ---------------------------------------------------
+def run_forecast(target_date="2026-09-28", forecast_days=5, use_realtime=True, log=None,
+                 use_prophet=False, compare_regression=False):
+    """
+    환율 예측 파이프라인 실행.
+
+    Parameters
+    ----------
+    target_date : str  예측 기준일 (과거 날짜면 백테스트 모드)
+    forecast_days : int  예측할 미래 영업일 수
+    use_realtime : bool  네이버 실시간 환율 보정 사용 여부
+    log : callable|None  진행상황 로그 콜백 (예: st.write). None이면 무시.
+    use_prophet : bool  Prophet 포함 여부. 가중치 상한이 5%라 영향은 작고 학습은 무거워서 기본 OFF.
+    compare_regression : bool  방향 백테스트에서 회귀 모델 비교까지 돌릴지 여부 (학습 횟수 2배).
+
+    Returns
+    -------
+    dict  예측 결과 전체 (아래 키 참조)
+    """
+    def _log(msg):
+        if log is not None:
+            log(msg)
+
+    decay_vector = np.linspace(1.0, 0.5, forecast_days)
+
+    # [2] 데이터 수집 + 피처 생성 ------------------------------------
+    ml, features, target_date, adjusted_note = load_dataset(target_date, log=_log)
 
     ml_step1 = ml.copy()
     ml_step1["Target_Step1"] = ml_step1["Close"].shift(-1) - ml_step1["Close"]

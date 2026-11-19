@@ -37,5 +37,5 @@ jobs:
             echo "변경 없음"
           else
             git commit -m "자동 예측 결과 업데이트 ($(TZ=Asia/Seoul date +%F))"
-            git push
+            git pull --rebase -q && git push
           fi

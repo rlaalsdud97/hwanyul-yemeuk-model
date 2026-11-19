@@ -1,0 +1,38 @@
+# 방향 예측 1년 검증 — 매주 토요일 오전 9:10(한국시간) + 수동 실행
+name: weekly-backtest
+
+on:
+  schedule:
+    - cron: "10 0 * * 6"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "검증 일수 (영업일)"
+        default: "250"
+
+permissions:
+  contents: write
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Run backtest
+        run: python backtest.py ${{ github.event.inputs.days || '250' }}
+      - name: Commit result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add data/backtest.json
+          if git diff --cached --quiet; then echo "변경 없음"; else
+            git commit -m "주간 백테스트 결과 업데이트 ($(TZ=Asia/Seoul date +%F))"
+            git pull --rebase -q && git push
+          fi
