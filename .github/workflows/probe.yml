@@ -10,5 +10,5 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with: {python-version: "3.11"}
-      - run: pip install -q yfinance pandas requests lxml html5lib beautifulsoup4 pykrx
-      - run: python probe_sources.py
+      - run: pip install -q -r requirements.txt
+      - run: python probe_timing.py
