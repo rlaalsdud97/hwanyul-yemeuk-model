@@ -11,6 +11,13 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
+# Streamlit Cloud는 깃허브에 새 코드가 올라와도 app.py만 다시 실행하고, 이미 불러온
+# 다른 모듈(result_io 등)은 옛 버전을 그대로 쓰는 경우가 있다 → 새 함수 import 시 ImportError.
+# 매 실행마다 최신 파일로 다시 불러와서 방지한다 (가벼운 모듈이라 비용 거의 없음).
+import importlib
+
+import result_io
+result_io = importlib.reload(result_io)
 from result_io import (CURRENCIES, data_path, history_path, latest_path,
                        load_history, load_result, summarize_history)
 
@@ -88,8 +95,9 @@ st.caption("KOSPI · VIX 결합 앙상블(XGBoost + ARIMA, 선택: Prophet) 퀀�
 @st.cache_data(ttl=1800, show_spinner=False)
 def cached_forecast(target_date, forecast_days, use_realtime, use_prophet,
                     compare_regression, currency="USD"):
-    from forecast_core import run_forecast
-    return run_forecast(
+    import forecast_core
+    importlib.reload(forecast_core)   # 위와 같은 이유로 최신 코드 사용
+    return forecast_core.run_forecast(
         currency=currency,
         target_date=target_date,
         forecast_days=forecast_days,
