@@ -1,6 +1,6 @@
 {
  "horizon": 1,
- "generated_at": "2026-11-19 15:19",
+ "generated_at": "2026-11-19 15:28",
  "test_days": 250,
  "period": [
   "2025-10-28",
@@ -78,16 +78,6 @@
    "conf_cover": 45.6,
    "conf_n": 114,
    "conf_hit": 53.5
-  },
-  "F. 변화량 + 수급·금리(당일) + 단순 XGB": {
-   "n": 250,
-   "hit": 62.8,
-   "ci95": 6.0,
-   "first_half": 70.4,
-   "second_half": 55.2,
-   "conf_cover": 92.4,
-   "conf_n": 231,
-   "conf_hit": 63.2
   },
   "G. 변화량 + 수급·금리(전일만) + 단순 XGB": {
    "n": 250,
