@@ -1,0 +1,40 @@
+{
+ "generated_at": "2026-11-19 16:45",
+ "currency": "USD",
+ "snap_kst": "15:00",
+ "test_days": 250,
+ "period": [
+  "2025-11-26",
+  "2026-11-18"
+ ],
+ "results": {
+  "야후 종가": {
+   "autocorr": -0.166,
+   "reversal_hit": 52.8,
+   "model": {
+    "n": 250,
+    "hit": 51.6,
+    "ci95": 6.2,
+    "first_half": 52.0,
+    "second_half": 51.2,
+    "conf_cover": 67.6,
+    "conf_n": 169,
+    "conf_hit": 47.9
+   }
+  },
+  "고정 15:00": {
+   "autocorr": -0.039,
+   "reversal_hit": 47.2,
+   "model": {
+    "n": 250,
+    "hit": 47.6,
+    "ci95": 6.2,
+    "first_half": 43.2,
+    "second_half": 52.0,
+    "conf_cover": 62.8,
+    "conf_n": 157,
+    "conf_hit": 46.5
+   }
+  }
+ }
+}
