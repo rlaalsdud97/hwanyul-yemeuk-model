@@ -53,8 +53,11 @@ SIMPLE_PARAMS = {"n_estimators": 150, "max_depth": 2, "learning_rate": 0.03,
 #   SPX  : S&P500 (위험선호)
 #   CNY/JPY/TWD : 주변국 통화 (원화와 같이 움직이는 경우 많음)
 #   US2Y : 미국 2년물 금리 (FRED) → 한미 금리차의 미국 쪽
-#   ※ 미국 장 마감(뉴욕 16시)이 환율 일봉 마감보다 빨라 당일 값 사용 가능.
-#     타이밍이 어긋날 위험에 대비해 '전일 값만' 쓰는 버전(G)도 함께 검증.
+#   ※ '당일' 값은 쓰지 않는다 (2026-11-19 확인):
+#     야후 원달러(KRW=X) 일봉 종가는 대개 한국 시간 낮(UTC 00~09시)의 가격이라,
+#     그날 밤 미국 장(EWY 등)은 환율 '종가 이후'의 일이다. 당일 EWY를 넣으면
+#     적중률이 62.8%까지 오르지만, 이미 밤사이 반영된 움직임을 맞히는 것이라
+#     실제 매수 결정에는 쓸 수 없다 (전일 값만 쓰면 46%). 그래서 G만 남김.
 # ------------------------------------------------------------------
 EXTRA_TICKERS = {"EWY": "EWY", "SOX": "^SOX", "SPX": "^GSPC",
                  "CNY": "CNY=X", "JPY": "JPY=X", "TWD": "TWD=X"}
@@ -167,7 +170,6 @@ def main(test_n=250, horizon=1):
         "C. 변화량 피처 + 단순 XGB": (DIR_FEATURES, _xgb(SIMPLE_PARAMS), None),
         "D. 변화량 피처 + 로지스틱": (DIR_FEATURES, _logit, None),
         "E. 변화량 + 단순 XGB (최근 2년만 학습)": (DIR_FEATURES, _xgb(SIMPLE_PARAMS), 500),
-        "F. 변화량 + 수급·금리(당일) + 단순 XGB": (DIR_FEATURES + extra_same + extra_lag, _xgb(SIMPLE_PARAMS), None),
         "G. 변화량 + 수급·금리(전일만) + 단순 XGB": (DIR_FEATURES + extra_lag, _xgb(SIMPLE_PARAMS), None),
     }
     probas = {}
