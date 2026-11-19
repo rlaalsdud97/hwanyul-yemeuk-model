@@ -46,6 +46,57 @@ SIMPLE_PARAMS = {"n_estimators": 150, "max_depth": 2, "learning_rate": 0.03,
                  "subsample": 0.8, "colsample_bytree": 0.8, "min_child_weight": 5}
 
 
+# ------------------------------------------------------------------
+# 외부 수급·금리 데이터 (실험용)
+#   EWY  : 미국 상장 한국 ETF → 외국인이 한국을 어떻게 보는지 (외국인 수급 대용)
+#   SOX  : 미국 반도체 지수 → 한국 수출·외국인 매매의 큰 축
+#   SPX  : S&P500 (위험선호)
+#   CNY/JPY/TWD : 주변국 통화 (원화와 같이 움직이는 경우 많음)
+#   US2Y : 미국 2년물 금리 (FRED) → 한미 금리차의 미국 쪽
+#   ※ 미국 장 마감(뉴욕 16시)이 환율 일봉 마감보다 빨라 당일 값 사용 가능.
+#     타이밍이 어긋날 위험에 대비해 '전일 값만' 쓰는 버전(G)도 함께 검증.
+# ------------------------------------------------------------------
+EXTRA_TICKERS = {"EWY": "EWY", "SOX": "^SOX", "SPX": "^GSPC",
+                 "CNY": "CNY=X", "JPY": "JPY=X", "TWD": "TWD=X"}
+
+
+def add_extra_features(ml, start="2019-01-01"):
+    import yfinance as yf
+    import requests, io
+    idx = ml.index
+    raw = yf.download(list(EXTRA_TICKERS.values()), start=start, progress=False)["Close"]
+    raw.index = pd.to_datetime(raw.index).tz_localize(None)
+    same, lag = [], []
+    for name, tk in EXTRA_TICKERS.items():
+        if tk not in raw.columns or raw[tk].notna().sum() < 500:
+            print(f"  (건너뜀: {name} 데이터 부족)")
+            continue
+        px = raw[tk].reindex(idx, method="ffill")
+        ml[f"{name}_ret"] = px.pct_change() * 100
+        ml[f"{name}_ret_lag1"] = ml[f"{name}_ret"].shift(1)
+        same.append(f"{name}_ret"); lag.append(f"{name}_ret_lag1")
+    # 원화가 주변 통화보다 더/덜 움직였는지 (상대 움직임)
+    for peer in ["TWD", "CNY"]:
+        if f"{peer}_ret" in ml:
+            ml[f"KRW_vs_{peer}"] = ml["Ret1"] - ml[f"{peer}_ret"]
+            ml[f"KRW_vs_{peer}_lag1"] = ml[f"KRW_vs_{peer}"].shift(1)
+            same.append(f"KRW_vs_{peer}"); lag.append(f"KRW_vs_{peer}_lag1")
+    try:
+        r = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS2", timeout=30)
+        f = pd.read_csv(io.StringIO(r.text))
+        f.columns = ["date", "v"]
+        f["v"] = pd.to_numeric(f["v"], errors="coerce")
+        us2 = f.dropna().set_index(pd.to_datetime(f.dropna()["date"]))["v"]
+        us2 = us2.reindex(idx, method="ffill")
+        ml["US2Y_chg"] = us2.diff()
+        ml["US2Y_chg_lag1"] = ml["US2Y_chg"].shift(1)
+        ml["US2Y_10Y_slope"] = ml["US10Y"] - us2   # 장단기 금리차
+        same += ["US2Y_chg", "US2Y_10Y_slope"]; lag += ["US2Y_chg_lag1"]
+    except Exception as e:
+        print(f"  (건너뜀: FRED 미국 2년물 — {e})")
+    return same, lag
+
+
 def walk_forward(df, feats, make_model, test_n, window=None, horizon=1):
     """각 날짜 i: 그 시점에 정답이 확정된 행(i-horizon 까지)으로 학습 → i 행 방향 확률 예측."""
     probas = []
@@ -85,6 +136,9 @@ def main(test_n=250, horizon=1):
     t0 = time.time()
     today = datetime.now(KST).strftime("%Y-%m-%d")
     ml, features, target_date, _ = load_dataset(today, start="2019-01-01")
+    extra_same, extra_lag = add_extra_features(ml)
+    ml = ml.dropna(subset=extra_same + extra_lag)
+    print(f"[backtest] 추가 피처 {len(extra_same)}+{len(extra_lag)}개: {extra_same}")
 
     nxt = ml["Close"].shift(-horizon)
     ml["Up"] = (nxt > ml["Close"]).astype(float).where(nxt.notna())
@@ -113,6 +167,8 @@ def main(test_n=250, horizon=1):
         "C. 변화량 피처 + 단순 XGB": (DIR_FEATURES, _xgb(SIMPLE_PARAMS), None),
         "D. 변화량 피처 + 로지스틱": (DIR_FEATURES, _logit, None),
         "E. 변화량 + 단순 XGB (최근 2년만 학습)": (DIR_FEATURES, _xgb(SIMPLE_PARAMS), 500),
+        "F. 변화량 + 수급·금리(당일) + 단순 XGB": (DIR_FEATURES + extra_same + extra_lag, _xgb(SIMPLE_PARAMS), None),
+        "G. 변화량 + 수급·금리(전일만) + 단순 XGB": (DIR_FEATURES + extra_lag, _xgb(SIMPLE_PARAMS), None),
     }
     probas = {}
     for name, (feats, maker, window) in configs.items():
