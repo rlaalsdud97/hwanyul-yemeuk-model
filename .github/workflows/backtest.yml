@@ -12,6 +12,9 @@ on:
       horizon:
         description: "몇 영업일 뒤 방향 (1=내일, 5=다음 주)"
         default: "1"
+      currencies:
+        description: "검증할 통화 (공백으로 구분: USD EUR)"
+        default: "USD EUR"
       buy_only:
         description: "매수 타이밍 검증만 실행 (true/false)"
         default: "false"
@@ -22,7 +25,7 @@ permissions:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -32,18 +35,20 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt
       - name: Run buy-timing backtest
-        run: python buy_backtest.py
+        run: for c in ${{ github.event.inputs.currencies || 'USD EUR' }}; do python buy_backtest.py $c; done
       - name: Run backtest
         if: ${{ github.event.inputs.buy_only != 'true' }}
         run: |
-          python backtest.py ${{ github.event.inputs.days || '250' }} ${{ github.event.inputs.horizon || '1' }}
-          # 토요일 정기 실행 때는 5영업일 뒤 방향도 함께 검증
-          if [ "${{ github.event_name }}" = "schedule" ]; then python backtest.py 500 5; fi
+          for c in ${{ github.event.inputs.currencies || 'USD EUR' }}; do
+            python backtest.py ${{ github.event.inputs.days || '250' }} ${{ github.event.inputs.horizon || '1' }} $c
+            # 토요일 정기 실행 때는 5영업일 뒤 방향도 함께 검증
+            if [ "${{ github.event_name }}" = "schedule" ]; then python backtest.py 500 5 $c; fi
+          done
       - name: Commit result
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add data/backtest*.json data/buy_backtest.json
+          git add data/backtest*.json data/buy_backtest*.json
           if git diff --cached --quiet; then echo "변경 없음"; else
             git commit -m "주간 백테스트 결과 업데이트 ($(TZ=Asia/Seoul date +%F))"
             git pull --rebase -q && git push

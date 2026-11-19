@@ -1,5 +1,5 @@
 # ==============================================================================
-# app.py — USD/KRW 환율 예측 대시보드 (Streamlit)
+# app.py — 원화 환율 예측 대시보드 (Streamlit) · USD/KRW, EUR/KRW
 #   실행:  streamlit run app.py
 #   구성:  ⚙️ 사이드바 설정 | 🎯 요약카드 | 📈 대화형 그래프 | 📋 예측표 | 📊 성능지표
 # ==============================================================================
@@ -11,17 +11,11 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-from result_io import LATEST_PATH, HISTORY_PATH, load_result, load_history, summarize_history
+from result_io import (CURRENCIES, data_path, history_path, latest_path,
+                       load_history, load_result, summarize_history)
 
 import json
 from pathlib import Path
-
-BACKTEST_PATH = Path(__file__).parent / "data" / "backtest.json"
-
-
-@st.cache_data(show_spinner=False)
-def _load_backtest(_mtime):
-    return json.loads(BACKTEST_PATH.read_text(encoding="utf-8"))
 
 
 @st.cache_data(show_spinner=False)
@@ -38,13 +32,16 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("💱 USD/KRW 환율 예측 대시보드")
-st.caption("KOSPI · VIX 결합 앙상블(XGBoost + ARIMA, 선택: Prophet) 퀀트 파이프라인")
-
 # ------------------------------------------------------------------
-# 사이드바 — 설정
+# 사이드바 — 통화 선택 + 직접 실행 설정
 # ------------------------------------------------------------------
 with st.sidebar:
+    currency = st.radio(
+        "💱 통화", list(CURRENCIES),
+        format_func=lambda c: f"{CURRENCIES[c]['flag']} {CURRENCIES[c]['pair']}",
+        horizontal=True, key="currency",
+    )
+    st.markdown("---")
     st.header("⚙️ 직접 실행")
     st.caption("평소엔 매일 아침 자동 예측 결과가 바로 표시됩니다. "
                "다른 날짜·기간이 필요할 때만 여기서 실행하세요 (1분 안팎 소요).")
@@ -65,15 +62,22 @@ with st.sidebar:
         )
     st.markdown("---")
     run_btn = st.button("🚀 직접 예측 실행", use_container_width=True)
-    if "result" in st.session_state:
+    RES_KEY = f"result_{currency}"   # 직접 실행 결과는 통화별로 따로 보관
+    if RES_KEY in st.session_state:
         if st.button("↩️ 자동 예측 결과로 돌아가기", use_container_width=True):
-            del st.session_state["result"]
+            del st.session_state[RES_KEY]
             st.rerun()
     st.markdown("---")
     st.caption(
         "⚠️ 방향성 정확도가 50% 부근이면 방향 예측은 신뢰하기 어렵습니다. "
         "실거래 판단은 참고용으로만 사용하세요."
     )
+
+CUR = CURRENCIES[currency]
+UNIT = CUR["unit"]          # 달러 / 유로
+PAIR = CUR["pair"]          # USD/KRW / EUR/KRW
+st.title(f"💱 {PAIR} 환율 예측 대시보드")
+st.caption("KOSPI · VIX 결합 앙상블(XGBoost + ARIMA, 선택: Prophet) 퀀트 파이프라인")
 
 
 # ------------------------------------------------------------------
@@ -83,9 +87,10 @@ with st.sidebar:
 # ------------------------------------------------------------------
 @st.cache_data(ttl=1800, show_spinner=False)
 def cached_forecast(target_date, forecast_days, use_realtime, use_prophet,
-                    compare_regression):
+                    compare_regression, currency="USD"):
     from forecast_core import run_forecast
     return run_forecast(
+        currency=currency,
         target_date=target_date,
         forecast_days=forecast_days,
         use_realtime=use_realtime,
@@ -98,9 +103,9 @@ def _do_run():
     with st.spinner("모델 학습 및 예측 중..."):
         result = cached_forecast(
             str(target_date), int(forecast_days), bool(use_realtime),
-            bool(use_prophet), bool(compare_regression),
+            bool(use_prophet), bool(compare_regression), currency,
         )
-    st.session_state["result"] = result
+    st.session_state[RES_KEY] = result
 
 
 if run_btn:
@@ -115,17 +120,19 @@ if run_btn:
 # 표시할 결과 고르기: 직접 실행 결과 > 매일 아침 자동 예측 결과
 # ------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
-def load_auto_result(_mtime):
+def load_auto_result(path, _mtime):
     # _mtime: 파일이 갱신되면 캐시를 새로 읽도록 하는 키
-    return load_result()
+    return load_result(path)
 
 
-if "result" in st.session_state:
-    result = st.session_state["result"]
+if RES_KEY in st.session_state:
+    result = st.session_state[RES_KEY]
 else:
-    result = load_auto_result(LATEST_PATH.stat().st_mtime) if LATEST_PATH.exists() else None
+    _lp = latest_path(currency)
+    result = load_auto_result(str(_lp), _lp.stat().st_mtime) if _lp.exists() else None
     if result is None:
-        st.info("아직 자동 예측 결과가 없습니다. 👈 왼쪽 사이드바에서 **[🚀 직접 예측 실행]**을 눌러주세요.")
+        st.info(f"아직 {PAIR} 자동 예측 결과가 없습니다. 다음 평일 아침 8:40에 생성됩니다. "
+                "지금 보려면 👈 왼쪽 사이드바에서 **[🚀 직접 예측 실행]**을 눌러주세요.")
         st.stop()
 
 is_auto = result.get("source") == "auto"
@@ -182,7 +189,7 @@ else:
     st.warning("→ 최근 20일 흐름 대비 **고가 구간**입니다.")
 
 # 매수 타이밍 검증 결과 (buy_backtest.py, 매주 토요일 갱신)
-BUY_BT_PATH = Path(__file__).parent / "data" / "buy_backtest.json"
+BUY_BT_PATH = data_path("buy_backtest", currency)
 if BUY_BT_PATH.exists():
     try:
         bb = _load_json(str(BUY_BT_PATH), BUY_BT_PATH.stat().st_mtime)
@@ -197,7 +204,7 @@ if BUY_BT_PATH.exists():
         st.caption(
             f"📌 매수 타이밍 검증 ({bb['period'][0]} ~ {bb['period'][1]}, {bb['months']}개월): "
             f"매일 나눠 사기 대비 'BUY 2배·WAIT 건너뛰기' 전략의 평균 매입 환율 차이 "
-            f"{r['avg_diff_won']:+.2f}원/달러 (범위 {lo:+.1f} ~ {hi:+.1f}원). {verdict}"
+            f"{r['avg_diff_won']:+.2f}원/{UNIT} (범위 {lo:+.1f} ~ {hi:+.1f}원). {verdict}"
         )
     except Exception:
         pass
@@ -237,14 +244,16 @@ if direction:
         st.caption("↑ 20일 검증은 우연만으로도 ±20%p 넘게 흔들리는 숫자입니다. 판단은 아래 1년 검증으로 하세요.")
 
     # 1년(250영업일) walk-forward 검증 결과 — 매주 토요일 자동 갱신 (backtest.py)
-    bt_year = _load_backtest(BACKTEST_PATH.stat().st_mtime) if BACKTEST_PATH.exists() else None
+    _bp = data_path("backtest", currency)
+    bt_year = _load_json(str(_bp), _bp.stat().st_mtime) if _bp.exists() else None
     cur = (bt_year or {}).get("results", {}).get("A. 현재 모델 (수준 피처 + XGB)")
     if cur:
         lo, hi = cur["hit"] - cur["ci95"], cur["hit"] + cur["ci95"]
         msg = (f"**1년 검증** ({bt_year['period'][0]} ~ {bt_year['period'][1]}, {cur['n']}일): "
                f"방향 적중률 **{cur['hit']}%** (오차범위 {lo:.0f}~{hi:.0f}%)")
         if lo > 50:
-            st.success(msg + " — 동전던지기보다 확실히 낫습니다.")
+            st.success(msg + " — 오차범위가 50%보다 위에 있습니다. "
+                       "다만 과거 1년 기준이므로, 아래 실전 기록에서도 유지되는지 확인하세요.")
         else:
             st.warning(msg + " — 오차범위에 50%가 포함돼 **동전던지기와 구분되지 않습니다.** "
                        "내일 방향 예측은 참고용으로만 보세요.")
@@ -363,7 +372,7 @@ if bt is not None and len(bt) > 0:
             height=380,
             title=f"방향성 백테스트 · {hit_rate:.1f}%",
             xaxis_title="날짜",
-            yaxis_title="USD/KRW",
+            yaxis_title=PAIR,
             hovermode="x unified",
             margin=dict(l=40, r=20, t=60, b=40)
         )
@@ -454,7 +463,7 @@ pad = max((y_max - y_min) * 0.25, 2.0)
 
 fig.update_layout(
     height=520,
-    xaxis_title="날짜", yaxis_title="환율 (KRW/USD)",
+    xaxis_title="날짜", yaxis_title=f"환율 ({PAIR})",
     yaxis=dict(range=[y_min - pad, y_max + pad]),
     xaxis=dict(rangebreaks=[dict(bounds=["sat", "mon"])]),  # 주말 빈칸 제거
     hovermode="x unified",
@@ -519,11 +528,12 @@ st.caption("매일 아침 낸 예측을 실제 종가가 나온 뒤 채점합니
 
 
 @st.cache_data(show_spinner=False)
-def _load_history(_mtime):
-    return load_history()
+def _load_history(path, _mtime):
+    return load_history(path)
 
 
-hist = _load_history(HISTORY_PATH.stat().st_mtime) if HISTORY_PATH.exists() else None
+_hp = history_path(currency)
+hist = _load_history(str(_hp), _hp.stat().st_mtime) if _hp.exists() else None
 summary = summarize_history(hist)
 if summary is None:
     st.info("기록이 쌓이는 중입니다. 다음 영업일 아침부터 채점 결과가 나타납니다.")
@@ -546,7 +556,7 @@ if hist is not None and not hist.empty:
                      use_container_width=True, hide_index=True)
         st.download_button("📥 예측 기록 CSV 다운로드",
                            data=hist.to_csv(index=False).encode("utf-8-sig"),
-                           file_name="forecast_history.csv", mime="text/csv")
+                           file_name=f"forecast_history_{currency.lower()}.csv", mime="text/csv")
 
 st.markdown("---")
 st.caption(
