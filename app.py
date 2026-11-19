@@ -12,6 +12,16 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from result_io import LATEST_PATH, HISTORY_PATH, load_result, load_history, summarize_history
+
+import json
+from pathlib import Path
+
+BACKTEST_PATH = Path(__file__).parent / "data" / "backtest.json"
+
+
+@st.cache_data(show_spinner=False)
+def _load_backtest(_mtime):
+    return json.loads(BACKTEST_PATH.read_text(encoding="utf-8"))
 # forecast_core(xgboost 등 무거운 라이브러리)는 [직접 실행]을 누를 때만 불러옵니다.
 
 # ------------------------------------------------------------------
@@ -198,13 +208,20 @@ if direction:
             f"**방향성 정확도** (최근 {dm.get('test_days','?')}일 walk-forward 검증): "
             f"🔴 분류 **{clf_da}%**{reg_txt}  vs  ⚪ 기준선(항상상승) {base_da}%"
         )
-        if clf_da is not None:
-            if clf_da >= 55:
-                st.success(f"분류 모델 방향성 {clf_da}% — 유의미한 수준입니다. (동전던지기 50%)")
-            elif clf_da >= 50:
-                st.info(f"분류 모델 방향성 {clf_da}% — 동전던지기 수준입니다. 참고용으로만.")
-            else:
-                st.warning(f"분류 모델 방향성 {clf_da}% — 신뢰하기 어렵습니다.")
+        st.caption("↑ 20일 검증은 우연만으로도 ±20%p 넘게 흔들리는 숫자입니다. 판단은 아래 1년 검증으로 하세요.")
+
+    # 1년(250영업일) walk-forward 검증 결과 — 매주 토요일 자동 갱신 (backtest.py)
+    bt_year = _load_backtest(BACKTEST_PATH.stat().st_mtime) if BACKTEST_PATH.exists() else None
+    cur = (bt_year or {}).get("results", {}).get("A. 현재 모델 (수준 피처 + XGB)")
+    if cur:
+        lo, hi = cur["hit"] - cur["ci95"], cur["hit"] + cur["ci95"]
+        msg = (f"**1년 검증** ({bt_year['period'][0]} ~ {bt_year['period'][1]}, {cur['n']}일): "
+               f"방향 적중률 **{cur['hit']}%** (오차범위 {lo:.0f}~{hi:.0f}%)")
+        if lo > 50:
+            st.success(msg + " — 동전던지기보다 확실히 낫습니다.")
+        else:
+            st.warning(msg + " — 오차범위에 50%가 포함돼 **동전던지기와 구분되지 않습니다.** "
+                       "내일 방향 예측은 참고용으로만 보세요.")
 
     # 확신도 경고
     if direction["confidence"] < 55:
