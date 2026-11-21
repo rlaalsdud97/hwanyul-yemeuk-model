@@ -1,51 +1,51 @@
 {
  "horizon": 1,
  "currency": "EUR",
- "generated_at": "2026-11-19 16:44",
+ "generated_at": "2026-11-21 16:05",
  "test_days": 250,
  "period": [
-  "2025-10-28",
-  "2026-11-17"
+  "2025-10-30",
+  "2026-11-19"
  ],
  "conf_threshold": 0.1,
  "results": {
   "기준선: 항상 상승": {
    "n": 250,
-   "hit": 48.8,
+   "hit": 49.2,
    "ci95": 6.2,
-   "first_half": 52.8,
-   "second_half": 44.8
+   "first_half": 54.4,
+   "second_half": 44.0
   },
   "기준선: 오늘 방향 그대로": {
    "n": 250,
-   "hit": 45.2,
+   "hit": 44.8,
    "ci95": 6.2,
    "first_half": 46.4,
-   "second_half": 44.0
+   "second_half": 43.2
   },
   "기준선: 오늘 반대로": {
    "n": 250,
-   "hit": 54.8,
+   "hit": 55.2,
    "ci95": 6.2,
    "first_half": 53.6,
-   "second_half": 56.0
+   "second_half": 56.8
   },
   "A. 현재 모델 (수준 피처 + XGB)": {
    "n": 250,
-   "hit": 59.2,
+   "hit": 59.6,
    "ci95": 6.1,
    "first_half": 57.6,
-   "second_half": 60.8,
+   "second_half": 61.6,
    "conf_cover": 56.8,
    "conf_n": 142,
-   "conf_hit": 62.7
+   "conf_hit": 63.4
   },
   "B. 변화량 피처 + XGB": {
    "n": 250,
-   "hit": 54.4,
+   "hit": 54.8,
    "ci95": 6.2,
    "first_half": 49.6,
-   "second_half": 59.2,
+   "second_half": 60.0,
    "conf_cover": 53.2,
    "conf_n": 133,
    "conf_hit": 61.7
@@ -54,8 +54,8 @@
    "n": 250,
    "hit": 50.8,
    "ci95": 6.2,
-   "first_half": 52.8,
-   "second_half": 48.8,
+   "first_half": 52.0,
+   "second_half": 49.6,
    "conf_cover": 39.6,
    "conf_n": 99,
    "conf_hit": 58.6
@@ -64,21 +64,21 @@
    "n": 250,
    "hit": 49.2,
    "ci95": 6.2,
-   "first_half": 55.2,
-   "second_half": 43.2,
+   "first_half": 54.4,
+   "second_half": 44.0,
    "conf_cover": 63.2,
    "conf_n": 158,
    "conf_hit": 47.5
   },
   "E. 변화량 + 단순 XGB (최근 2년만 학습)": {
    "n": 250,
-   "hit": 51.6,
+   "hit": 52.0,
    "ci95": 6.2,
    "first_half": 49.6,
-   "second_half": 53.6,
-   "conf_cover": 42.0,
-   "conf_n": 105,
-   "conf_hit": 58.1
+   "second_half": 54.4,
+   "conf_cover": 41.6,
+   "conf_n": 104,
+   "conf_hit": 58.7
   },
   "G. 변화량 + 수급·금리(전일만) + 단순 XGB": {
    "n": 250,
