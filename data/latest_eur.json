@@ -1,104 +1,103 @@
 {
  "currency": "EUR",
- "target_date": "2026-11-23",
+ "target_date": "2026-11-24",
  "forecast_days": 5,
  "adjusted_note": null,
- "current_rate": 1472.51,
+ "current_rate": 1461.37,
  "crawl_ok": false,
  "crawl_msg": "실시간 보정 비활성화 → 모델 종가 사용",
  "today_signal": "🟢 BUY",
- "percent_b": 11.9,
- "band_center": 1487.0,
- "lower_band": 1467.98,
- "upper_band": 1506.03,
+ "percent_b": -12.5,
+ "band_center": 1486.13,
+ "lower_band": 1466.33,
+ "upper_band": 1505.94,
  "best_model": "XGBoost",
- "best_score": 8.34,
+ "best_score": 8.89,
  "weights": {
-  "XGBoost": 67.5,
-  "ARIMA": 32.5,
+  "XGBoost": 66.5,
+  "ARIMA": 33.5,
   "Prophet": 0.0
  },
  "forecast_table": [
   {
-   "Date": "2026-11-24",
-   "XGBoost": 1471.47,
-   "ARIMA": 1468.51,
-   "Final": 1470.51,
-   "Buy_Band": 1467.98,
-   "Sell_Band": 1506.03,
-   "Signal": "🟢 BUY"
-  },
-  {
    "Date": "2026-11-25",
-   "XGBoost": 1472.08,
-   "ARIMA": 1468.51,
-   "Final": 1470.92,
-   "Buy_Band": 1467.98,
-   "Sell_Band": 1506.03,
+   "XGBoost": 1461.72,
+   "ARIMA": 1464.19,
+   "Final": 1462.55,
+   "Buy_Band": 1466.33,
+   "Sell_Band": 1505.94,
    "Signal": "🟢 BUY"
   },
   {
    "Date": "2026-11-26",
-   "XGBoost": 1471.36,
-   "ARIMA": 1468.51,
-   "Final": 1470.44,
-   "Buy_Band": 1467.98,
-   "Sell_Band": 1506.03,
+   "XGBoost": 1460.05,
+   "ARIMA": 1464.19,
+   "Final": 1461.44,
+   "Buy_Band": 1466.33,
+   "Sell_Band": 1505.94,
    "Signal": "🟢 BUY"
   },
   {
    "Date": "2026-11-27",
-   "XGBoost": 1470.12,
-   "ARIMA": 1468.51,
-   "Final": 1469.6,
-   "Buy_Band": 1467.98,
-   "Sell_Band": 1506.03,
+   "XGBoost": 1460.4,
+   "ARIMA": 1464.19,
+   "Final": 1461.67,
+   "Buy_Band": 1466.33,
+   "Sell_Band": 1505.94,
    "Signal": "🟢 BUY"
   },
   {
    "Date": "2026-11-30",
-   "XGBoost": 1470.2,
-   "ARIMA": 1468.51,
-   "Final": 1469.65,
-   "Buy_Band": 1467.98,
-   "Sell_Band": 1506.03,
+   "XGBoost": 1458.78,
+   "ARIMA": 1464.19,
+   "Final": 1460.59,
+   "Buy_Band": 1466.33,
+   "Sell_Band": 1505.94,
+   "Signal": "🟢 BUY"
+  },
+  {
+   "Date": "2026-12-01",
+   "XGBoost": 1459.65,
+   "ARIMA": 1464.19,
+   "Final": 1461.17,
+   "Buy_Band": 1466.33,
+   "Sell_Band": 1505.94,
    "Signal": "🟢 BUY"
   }
  ],
  "forecast_dates": [
-  "2026-11-24",
   "2026-11-25",
   "2026-11-26",
   "2026-11-27",
-  "2026-11-30"
+  "2026-11-30",
+  "2026-12-01"
  ],
  "xgb_forecast": [
-  1471.47,
-  1472.08,
-  1471.36,
-  1470.12,
-  1470.2
+  1461.72,
+  1460.05,
+  1460.4,
+  1458.78,
+  1459.65
  ],
  "arima_forecast": [
-  1468.51,
-  1468.51,
-  1468.51,
-  1468.51,
-  1468.51
+  1464.19,
+  1464.19,
+  1464.19,
+  1464.19,
+  1464.19
  ],
  "prophet_forecast": null,
  "use_prophet": false,
  "prophet_note": null,
  "ensemble_forecast": [
-  1470.51,
-  1470.92,
-  1470.44,
-  1469.6,
-  1469.65
+  1462.55,
+  1461.44,
+  1461.67,
+  1460.59,
+  1461.17
  ],
  "history": {
   "dates": [
-   "2026-10-13",
    "2026-10-14",
    "2026-10-15",
    "2026-10-16",
@@ -127,10 +126,10 @@
    "2026-11-18",
    "2026-11-19",
    "2026-11-20",
-   "2026-11-23"
+   "2026-11-23",
+   "2026-11-24"
   ],
   "values": [
-   1488.1099853515625,
    1499.9200439453125,
    1499.1500244140625,
    1501.449951171875,
@@ -159,41 +158,31 @@
    1464.4000244140625,
    1459.530029296875,
    1462.4100341796875,
-   1472.510009765625
+   1472.510009765625,
+   1461.3699951171875
   ]
  },
  "metrics": {
-  "sample_days": 23,
-  "mae": 8.58,
-  "rmse": 10.07,
-  "mape": 0.58,
-  "accuracy": 99.42,
-  "directional_accuracy": 50.0
+  "sample_days": 21,
+  "mae": 9.0,
+  "rmse": 10.65,
+  "mape": 0.6,
+  "accuracy": 99.4,
+  "directional_accuracy": 45.0
  },
  "direction": {
-  "label": "▲ 상승",
-  "up": true,
-  "up_proba": 60.1,
-  "confidence": 60.1,
-  "next_date": "2026-11-24",
+  "label": "▼ 하락",
+  "up": false,
+  "up_proba": 46.3,
+  "confidence": 53.7,
+  "next_date": "2026-11-25",
   "metrics": {
    "regression_da": null,
-   "classifier_da": 50.0,
-   "baseline_da": 40.0,
+   "classifier_da": 45.0,
+   "baseline_da": 35.0,
    "test_days": 20
   },
   "backtest_table": [
-   {
-    "날짜": "2026-10-26",
-    "현재가": 1475.7,
-    "실제_다음날": 1478.76,
-    "실제_방향": "▲ 상승",
-    "예측_방향": "▲ 상승",
-    "상승확률": "65%",
-    "적중": "✅",
-    "_close": 1475.699951171875,
-    "_hit": true
-   },
    {
     "날짜": "2026-10-27",
     "현재가": 1478.76,
@@ -402,9 +391,20 @@
     "적중": "❌",
     "_close": 1462.4100341796875,
     "_hit": false
+   },
+   {
+    "날짜": "2026-11-23",
+    "현재가": 1472.51,
+    "실제_다음날": 1461.37,
+    "실제_방향": "▼ 하락",
+    "예측_방향": "▲ 상승",
+    "상승확률": "60%",
+    "적중": "❌",
+    "_close": 1472.510009765625,
+    "_hit": false
    }
   ]
  },
  "source": "auto",
- "generated_at": "2026-11-24 16:05"
+ "generated_at": "2026-11-25 14:40"
 }
