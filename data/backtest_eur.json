@@ -1,94 +1,94 @@
 {
  "horizon": 1,
  "currency": "EUR",
- "generated_at": "2026-11-21 16:05",
+ "generated_at": "2026-11-28 16:46",
  "test_days": 250,
  "period": [
-  "2025-10-30",
-  "2026-11-19"
+  "2025-11-04",
+  "2026-11-24"
  ],
  "conf_threshold": 0.1,
  "results": {
   "기준선: 항상 상승": {
    "n": 250,
-   "hit": 49.2,
+   "hit": 50.0,
    "ci95": 6.2,
    "first_half": 54.4,
-   "second_half": 44.0
+   "second_half": 45.6
   },
   "기준선: 오늘 방향 그대로": {
    "n": 250,
-   "hit": 44.8,
+   "hit": 44.0,
    "ci95": 6.2,
-   "first_half": 46.4,
-   "second_half": 43.2
+   "first_half": 45.6,
+   "second_half": 42.4
   },
   "기준선: 오늘 반대로": {
    "n": 250,
-   "hit": 55.2,
+   "hit": 56.0,
    "ci95": 6.2,
-   "first_half": 53.6,
-   "second_half": 56.8
+   "first_half": 54.4,
+   "second_half": 57.6
   },
   "A. 현재 모델 (수준 피처 + XGB)": {
    "n": 250,
    "hit": 59.6,
    "ci95": 6.1,
-   "first_half": 57.6,
-   "second_half": 61.6,
-   "conf_cover": 56.8,
-   "conf_n": 142,
-   "conf_hit": 63.4
+   "first_half": 59.2,
+   "second_half": 60.0,
+   "conf_cover": 57.2,
+   "conf_n": 143,
+   "conf_hit": 62.9
   },
   "B. 변화량 피처 + XGB": {
    "n": 250,
-   "hit": 54.8,
+   "hit": 54.4,
    "ci95": 6.2,
-   "first_half": 49.6,
+   "first_half": 48.8,
    "second_half": 60.0,
-   "conf_cover": 53.2,
-   "conf_n": 133,
-   "conf_hit": 61.7
+   "conf_cover": 53.6,
+   "conf_n": 134,
+   "conf_hit": 61.2
   },
   "C. 변화량 피처 + 단순 XGB": {
    "n": 250,
-   "hit": 50.8,
+   "hit": 50.0,
    "ci95": 6.2,
-   "first_half": 52.0,
-   "second_half": 49.6,
-   "conf_cover": 39.6,
-   "conf_n": 99,
-   "conf_hit": 58.6
+   "first_half": 51.2,
+   "second_half": 48.8,
+   "conf_cover": 40.0,
+   "conf_n": 100,
+   "conf_hit": 58.0
   },
   "D. 변화량 피처 + 로지스틱": {
    "n": 250,
-   "hit": 49.2,
+   "hit": 48.4,
    "ci95": 6.2,
-   "first_half": 54.4,
-   "second_half": 44.0,
+   "first_half": 53.6,
+   "second_half": 43.2,
    "conf_cover": 63.2,
    "conf_n": 158,
    "conf_hit": 47.5
   },
   "E. 변화량 + 단순 XGB (최근 2년만 학습)": {
    "n": 250,
-   "hit": 52.0,
+   "hit": 52.4,
    "ci95": 6.2,
-   "first_half": 49.6,
-   "second_half": 54.4,
+   "first_half": 51.2,
+   "second_half": 53.6,
    "conf_cover": 41.6,
    "conf_n": 104,
-   "conf_hit": 58.7
+   "conf_hit": 59.6
   },
   "G. 변화량 + 수급·금리(전일만) + 단순 XGB": {
    "n": 250,
-   "hit": 53.2,
+   "hit": 52.8,
    "ci95": 6.2,
-   "first_half": 54.4,
+   "first_half": 53.6,
    "second_half": 52.0,
-   "conf_cover": 40.4,
-   "conf_n": 101,
-   "conf_hit": 58.4
+   "conf_cover": 40.8,
+   "conf_n": 102,
+   "conf_hit": 57.8
   }
  }
 }

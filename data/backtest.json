@@ -1,44 +1,44 @@
 {
  "horizon": 1,
  "currency": "USD",
- "generated_at": "2026-11-21 15:59",
+ "generated_at": "2026-11-28 16:40",
  "test_days": 250,
  "period": [
-  "2025-10-30",
-  "2026-11-19"
+  "2025-11-04",
+  "2026-11-24"
  ],
  "conf_threshold": 0.1,
  "results": {
   "기준선: 항상 상승": {
    "n": 250,
-   "hit": 48.8,
+   "hit": 48.4,
    "ci95": 6.2,
-   "first_half": 52.8,
+   "first_half": 52.0,
    "second_half": 44.8
   },
   "기준선: 오늘 방향 그대로": {
    "n": 250,
-   "hit": 47.6,
+   "hit": 47.2,
    "ci95": 6.2,
-   "first_half": 48.8,
+   "first_half": 48.0,
    "second_half": 46.4
   },
   "기준선: 오늘 반대로": {
    "n": 250,
-   "hit": 52.4,
+   "hit": 52.8,
    "ci95": 6.2,
-   "first_half": 51.2,
+   "first_half": 52.0,
    "second_half": 53.6
   },
   "A. 현재 모델 (수준 피처 + XGB)": {
    "n": 250,
-   "hit": 54.8,
+   "hit": 54.4,
    "ci95": 6.2,
-   "first_half": 51.2,
-   "second_half": 58.4,
-   "conf_cover": 51.6,
-   "conf_n": 129,
-   "conf_hit": 58.9
+   "first_half": 49.6,
+   "second_half": 59.2,
+   "conf_cover": 52.0,
+   "conf_n": 130,
+   "conf_hit": 58.5
   },
   "B. 변화량 피처 + XGB": {
    "n": 250,
@@ -54,17 +54,17 @@
    "n": 250,
    "hit": 46.0,
    "ci95": 6.2,
-   "first_half": 49.6,
-   "second_half": 42.4,
-   "conf_cover": 44.0,
-   "conf_n": 110,
-   "conf_hit": 44.5
+   "first_half": 50.4,
+   "second_half": 41.6,
+   "conf_cover": 43.6,
+   "conf_n": 109,
+   "conf_hit": 45.0
   },
   "D. 변화량 피처 + 로지스틱": {
    "n": 250,
-   "hit": 46.0,
+   "hit": 46.4,
    "ci95": 6.2,
-   "first_half": 46.4,
+   "first_half": 47.2,
    "second_half": 45.6,
    "conf_cover": 57.6,
    "conf_n": 144,
@@ -72,23 +72,23 @@
   },
   "E. 변화량 + 단순 XGB (최근 2년만 학습)": {
    "n": 250,
-   "hit": 53.2,
+   "hit": 52.8,
    "ci95": 6.2,
-   "first_half": 56.0,
-   "second_half": 50.4,
+   "first_half": 53.6,
+   "second_half": 52.0,
    "conf_cover": 46.0,
    "conf_n": 115,
-   "conf_hit": 53.9
+   "conf_hit": 53.0
   },
   "G. 변화량 + 수급·금리(전일만) + 단순 XGB": {
    "n": 250,
    "hit": 46.0,
    "ci95": 6.2,
-   "first_half": 49.6,
-   "second_half": 42.4,
-   "conf_cover": 41.2,
-   "conf_n": 103,
-   "conf_hit": 45.6
+   "first_half": 51.2,
+   "second_half": 40.8,
+   "conf_cover": 40.8,
+   "conf_n": 102,
+   "conf_hit": 46.1
   }
  }
 }
